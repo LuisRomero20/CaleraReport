@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Masivo Reporte Tool | Consolidador Multi-Departamento</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --g-dark:#1E3A2F;--g-mid:#375623;--g-bright:#70AD47;--g-light:#A9D18E;
+      --cyan:#00B0F0;--cyan-lt:#DEEAF1;--blue-dk:#1F4E79;
+      --yellow-lt:#FFF2CC;--gold:#FFD700;
+      --bg:#0D1B12;--bg-card:rgba(22,45,30,.85);
+      --txt:#DFF0D0;--txt-muted:#7FA869;--border:rgba(112,173,71,.25);--radius:14px;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Outfit',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;
+      background-image:radial-gradient(ellipse at 15% 60%,rgba(55,86,35,.35) 0%,transparent 55%),
+        radial-gradient(ellipse at 85% 15%,rgba(0,176,240,.12) 0%,transparent 45%)}
+    .header{background:linear-gradient(135deg,var(--g-mid),var(--g-dark));border-bottom:2px solid var(--g-bright);
+      padding:1.2rem 2rem;display:flex;align-items:center;gap:1rem;
+      box-shadow:0 4px 24px rgba(0,0,0,.5);position:sticky;top:0;z-index:10}
+    .header-logo{font-size:2.2rem}
+    .header h1{font-size:1.5rem;font-weight:800;color:#fff;letter-spacing:-.5px}
+    .header p{font-size:.78rem;color:var(--g-light);margin-top:1px}
+    .header-badge{margin-left:auto;background:var(--g-bright);color:#fff;padding:.25rem .75rem;
+      border-radius:20px;font-size:.72rem;font-weight:700;letter-spacing:.5px}
+    .container{max-width:1000px;margin:2rem auto;padding:0 1.25rem;display:flex;flex-direction:column;gap:1.5rem}
+    .card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
+      padding:1.5rem;backdrop-filter:blur(12px);box-shadow:0 2px 20px rgba(0,0,0,.3);transition:border-color .3s}
+    .card:hover{border-color:rgba(112,173,71,.45)}
+    .card-title{font-size:.92rem;font-weight:700;color:var(--g-bright);margin-bottom:1.1rem;
+      display:flex;align-items:center;gap:.5rem;text-transform:uppercase;letter-spacing:.5px}
+    .step-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+      border-radius:50%;background:var(--g-bright);color:#fff;font-size:.72rem;font-weight:800;flex-shrink:0}
+    .drop-zone{border:2px dashed var(--g-bright);border-radius:12px;padding:3.5rem 2rem;text-align:center;
+      cursor:pointer;background:rgba(112,173,71,.04);transition:all .3s ease;position:relative;overflow:hidden}
+    .drop-zone:hover,.drop-zone.drag-over{border-color:var(--cyan);background:rgba(0,176,240,.06);
+      transform:scale(1.01);box-shadow:0 0 30px rgba(0,176,240,.12)}
+    .drop-icon{font-size:3.8rem;display:block;margin-bottom:.8rem}
+    .drop-zone h2{font-size:1.15rem;font-weight:700;color:#fff;margin-bottom:.4rem}
+    .drop-zone p{font-size:.82rem;color:var(--txt-muted);margin-bottom:1.5rem}
+    .drop-zone input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.4rem;border-radius:8px;
+      font-family:inherit;font-size:.88rem;font-weight:600;border:none;cursor:pointer;transition:all .2s ease}
+    .btn-primary{background:var(--g-bright);color:#fff;box-shadow:0 2px 12px rgba(112,173,71,.3)}
+    .btn-primary:hover{background:#5c9c38;transform:translateY(-1px);box-shadow:0 6px 20px rgba(112,173,71,.45)}
+    .btn-sm{padding:.35rem .8rem;font-size:.78rem;border-radius:6px;
+      background:rgba(112,173,71,.15);color:var(--g-light);border:1px solid var(--border)}
+    .btn-sm:hover{background:rgba(112,173,71,.25)}
+    .btn-download{background:linear-gradient(135deg,var(--g-mid),var(--g-bright));color:#fff;
+      font-size:1rem;font-weight:700;padding:1rem 2rem;border-radius:10px;width:100%;
+      justify-content:center;box-shadow:0 4px 24px rgba(112,173,71,.35);letter-spacing:.3px}
+    .btn-download:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(112,173,71,.55)}
+    .btn-download:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+    .alert{padding:.8rem 1rem;border-radius:8px;font-size:.83rem;display:flex;align-items:flex-start;gap:.6rem;margin-top:1rem}
+    .alert-warn{background:rgba(255,193,7,.08);border:1px solid rgba(255,193,7,.3);color:#FFC107}
+    .folder-list{display:flex;flex-direction:column;gap:.65rem}
+    .folder-item{display:flex;align-items:center;gap:.85rem;padding:.9rem 1.1rem;border-radius:10px;
+      border:1px solid var(--border);background:rgba(112,173,71,.06);transition:all .3s ease}
+    .folder-item.processing{border-color:var(--cyan);background:rgba(0,176,240,.07)}
+    .folder-item.done{border-color:var(--g-bright);background:rgba(112,173,71,.1)}
+    .folder-item.error{border-color:#FF6B6B;background:rgba(255,80,80,.07)}
+    .folder-icon{font-size:1.7rem;flex-shrink:0}
+    .folder-info{flex:1;min-width:0}
+    .folder-name{font-weight:700;font-size:.92rem;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .folder-meta{font-size:.75rem;color:var(--txt-muted);margin-top:2px}
+    .folder-badge{flex-shrink:0;font-size:.72rem;font-weight:700;padding:.2rem .6rem;border-radius:20px;
+      background:rgba(112,173,71,.2);color:var(--g-light);white-space:nowrap}
+    .folder-badge.teal{background:rgba(0,176,240,.2);color:var(--cyan)}
+    .folder-badge.red{background:rgba(255,80,80,.2);color:#FF6B6B}
+    .progress-wrap{margin-top:1rem}
+    .progress-label{display:flex;justify-content:space-between;font-size:.75rem;color:var(--txt-muted);margin-bottom:.3rem}
+    .progress-bar{height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}
+    .progress-fill{height:100%;background:linear-gradient(90deg,var(--g-bright),var(--cyan));
+      border-radius:3px;transition:width .5s cubic-bezier(.4,0,.2,1);width:0%}
+    .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1rem}
+    .stat-box{background:rgba(112,173,71,.08);border:1px solid var(--border);border-radius:10px;
+      padding:1.1rem 1rem;text-align:center;transition:transform .2s}
+    .stat-box:hover{transform:translateY(-2px);border-color:var(--g-bright)}
+    .stat-value{font-size:2rem;font-weight:800;color:var(--g-bright);line-height:1}
+    .stat-value.money{font-size:1.3rem;color:var(--gold)}
+    .stat-label{font-size:.72rem;color:var(--txt-muted);margin-top:.35rem;text-transform:uppercase;letter-spacing:.5px}
+    .dept-tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem}
+    .dept-tab{padding:.28rem .75rem;border-radius:20px;font-size:.75rem;font-weight:600;cursor:pointer;
+      border:1px solid var(--border);background:transparent;color:var(--txt-muted);font-family:inherit;transition:all .2s}
+    .dept-tab.active{background:var(--g-bright);color:#fff;border-color:var(--g-bright)}
+    .dept-tab:hover:not(.active){border-color:var(--g-bright);color:var(--g-bright)}
+    .preview-wrap{overflow-x:auto;border-radius:8px;border:1px solid var(--border)}
+    .preview-tbl{width:100%;border-collapse:collapse;font-size:.78rem}
+    .preview-tbl th{background:var(--g-mid);color:#fff;padding:.55rem .7rem;text-align:left;
+      font-weight:700;white-space:nowrap;border-right:1px solid rgba(255,255,255,.08)}
+    .preview-tbl th.th-teal{background:#0090C0;color:#fff}
+    .preview-tbl th.th-oc{background:var(--blue-dk);color:#fff}
+    .preview-tbl td{padding:.45rem .7rem;border-bottom:1px solid rgba(255,255,255,.04);
+      color:var(--txt);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+    .preview-tbl tr:nth-child(even) td{background:rgba(255,255,255,.02)}
+    .preview-tbl tr:hover td{background:rgba(112,173,71,.06)}
+    .preview-tbl td.td-oc{color:var(--cyan);font-weight:700}
+    .preview-tbl td.td-amt{color:var(--gold);font-weight:700;font-family:monospace}
+    .preview-tbl .total-tr td{background:var(--g-mid) !important;color:#fff;font-weight:700;border-top:2px solid var(--g-bright)}
+    .preview-tbl .total-tr td.td-amt{color:var(--gold)}
+    .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.2);
+      border-top-color:#fff;border-radius:50%;animation:spinning .7s linear infinite}
+    @keyframes spinning{to{transform:rotate(360deg)}}
+    .hidden{display:none !important}
+    footer{text-align:center;padding:2rem 1rem;color:var(--txt-muted);font-size:.73rem;opacity:.7}
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <span class="header-logo">📊</span>
+  <div>
+    <h1>Masivo Reporte Tool</h1>
+    <p>Consolidador Multi-Departamento — Perú &nbsp;|&nbsp; Sin instalación requerida</p>
+  </div>
+  <span class="header-badge">v2.0</span>
+</header>
+
+<div class="container">
+
+  <!-- PASO 1 -->
+  <div class="card" id="card-upload">
+    <div class="card-title"><span class="step-badge">1</span> Selecciona las carpetas</div>
+    <div class="drop-zone" id="drop-zone">
+      <span class="drop-icon">🗂️</span>
+      <h2>Arrastra las carpetas de departamentos aquí</h2>
+      <p>O selecciona la carpeta raíz que las contiene — la herramienta busca los archivos CONSOLIDADO automáticamente</p>
+      <button class="btn btn-primary" type="button"
+        onclick="document.getElementById('fi-root').click();event.stopPropagation()">
+        📂 &nbsp;Seleccionar carpeta raíz
+      </button>
+      &nbsp;
+      <button class="btn btn-sm" type="button"
+        onclick="document.getElementById('fi-files').click();event.stopPropagation()">
+        📄 Archivos individuales
+      </button>
+      <input type="file" id="fi-root" webkitdirectory>
+      <input type="file" id="fi-files" multiple accept=".xlsx,.xls" style="display:none">
+    </div>
+    <div id="alert-nolib" class="alert alert-warn hidden">
+      ⚠️ <b>SheetJS no cargó.</b> Necesitas internet la primera vez. Recarga la página con internet activo.
+    </div>
+  </div>
+
+  <!-- PASO 2 -->
+  <div class="card hidden" id="card-folders">
+    <div class="card-title"><span class="step-badge">2</span> Carpetas detectadas</div>
+    <div class="folder-list" id="folder-list"></div>
+    <div class="progress-wrap">
+      <div class="progress-label">
+        <span id="prog-label">Procesando...</span>
+        <span id="prog-pct">0%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="prog-fill"></div></div>
+    </div>
+  </div>
+
+  <!-- PASO 3 -->
+  <div class="card hidden" id="card-stats">
+    <div class="card-title"><span class="step-badge">3</span> Resumen</div>
+    <div class="stats-grid" id="stats-grid"></div>
+  </div>
+
+  <!-- PASO 4 -->
+  <div class="card hidden" id="card-preview">
+    <div class="card-title"><span class="step-badge">4</span> Vista previa</div>
+    <div class="dept-tabs" id="dept-tabs"></div>
+    <div id="date-toolbar" style="margin-bottom:.9rem;padding:.7rem 1rem;background:rgba(0,176,240,.08);border:1px solid rgba(0,176,240,.25);border-radius:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem">
+      <div style="display:flex;align-items:center;gap:.5rem;font-size:.85rem">
+        <span>📅</span>
+        <span><strong>Fecha Doc:</strong></span>
+        <span id="date-source-badge" style="font-size:.75rem;background:rgba(112,173,71,.25);color:var(--g-light);padding:3px 10px;border-radius:12px;font-weight:600">Auto</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <label style="font-size:.78rem;color:var(--txt-muted)">Modificar fecha:</label>
+        <input type="text" id="quick-date-val" placeholder="DD.MM.YYYY" maxlength="10" style="padding:.35rem .6rem;background:rgba(0,0,0,.4);border:1px solid var(--border);border-radius:6px;color:#fff;font-family:inherit;font-size:.85rem;width:115px;text-align:center" />
+        <button type="button" class="btn" onclick="applyQuickDate()" style="padding:.35rem .8rem;font-size:.78rem;background:var(--cyan);color:#000;font-weight:700;border:none;border-radius:6px;cursor:pointer">
+          Aplicar a toda la hoja
+        </button>
+      </div>
+    </div>
+    <div class="preview-wrap">
+      <table class="preview-tbl">
+        <thead id="preview-thead"></thead>
+        <tbody id="preview-tbody"></tbody>
+      </table>
+    </div>
+    <p style="margin-top:.5rem;font-size:.73rem;color:var(--txt-muted)">
+      Máximo 25 filas en la vista previa. El Excel incluye todos los registros.
+    </p>
+  </div>
+
+  <!-- PASO 5 -->
+  <div class="card hidden" id="card-download">
+    <div class="card-title"><span class="step-badge">5</span> Descargar</div>
+    <button class="btn btn-download" id="btn-dl" onclick="downloadExcel()">
+      📥 &nbsp;Descargar Masivo Reporte.xlsx
+    </button>
+    <p style="text-align:center;font-size:.75rem;color:var(--txt-muted);margin-top:.8rem">
+      Una hoja por departamento · Columnas A–U · Importe en S/ · OC completadas
+    </p>
+  </div>
+
+</div>
+
+<footer>Masivo Reporte Tool &mdash; Procesamiento 100% local. Los archivos nunca salen de tu computadora.</footer>
+
+<script>
+'use strict';
+
+window.addEventListener('load',()=>{
+  if(typeof XLSX==='undefined')
+    document.getElementById('alert-nolib').classList.remove('hidden');
+});
+
+// ── Columnas de salida ─────────────────────────────────────────
+const COLS=[
+  {key:'id_cabc',    label:'ID CABC(1)',             th:'green',w:8},
+  {key:'fecha_doc',  label:'Fecha Doc',              th:'green',w:13},
+  {key:'texto_cab',  label:'Texto Cab Doc',          th:'olive', w:18},
+  {key:'referencia', label:'REFERENCIA',             th:'green',w:24},
+  {key:'id_posc_acr',label:'ID POSC(2)Acreedor',    th:'olive', w:12},
+  {key:'ruc',        label:'RUC',                    th:'olive', w:14},
+  {key:'cond_pago',  label:'Cond Pago',              th:'olive', w:10},
+  {key:'ind_impto',  label:'Ind Impto',              th:'olive', w:10},
+  {key:'tipo_detr',  label:'Tipo Detr',              th:'olive', w:10},
+  {key:'ind_detra',  label:'Ind Detra',              th:'olive', w:10},
+  {key:'asignacion', label:'Asignación',             th:'olive', w:14},
+  {key:'texto_pos',  label:'Texto Posición',         th:'teal',  w:44},
+  {key:'id_posc_gto',label:'ID POSC(2) Cta GASTO',  th:'olive', w:10},
+  {key:'cta_gasto',  label:'Cuenta Gasto',           th:'olive', w:13},
+  {key:'detalle',    label:'DETALLE',                th:'olive', w:18},
+  {key:'centro_cto', label:'Centro Costo',           th:'olive', w:14},
+  {key:'importe_md', label:'Importe MD',             th:'green', w:14},
+  {key:'ind_impto_r',label:'Ind Impto',              th:'olive', w:10},
+  {key:'asignac_r',  label:'Asignación',             th:'olive', w:14},
+  {key:'texto_pos_t',label:'Texto Posición',         th:'teal',  w:44},
+  {key:'oc',         label:'N° OC',                  th:'oc',    w:14},
+];
+
+let allDepts={};
+
+// ── Entradas de archivo ────────────────────────────────────────
+document.getElementById('fi-root').addEventListener('change',async e=>
+  handleFiles(Array.from(e.target.files)));
+document.getElementById('fi-files').addEventListener('change',async e=>
+  handleFiles(Array.from(e.target.files)));
+
+// Drag & drop
+const dz=document.getElementById('drop-zone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
+dz.addEventListener('drop',async e=>{
+  e.preventDefault();dz.classList.remove('drag-over');
+  const fl=[];
+  for(const item of e.dataTransfer.items){
+    if(item.kind==='file'){const f=item.getAsFile();if(f)fl.push(f);}
+  }
+  if(fl.length)await handleFiles(fl);
+});
+
+// ── Agrupar por subcarpeta ─────────────────────────────────────
+function groupFiles(files){
+  const g={};
+  for(const f of files){
+    const rel=f.webkitRelativePath||f.name;
+    const parts=rel.split('/');
+    // parts[0]=root, parts[1]=dept-folder, parts[2]=file
+    const key=parts.length>=3?parts[1]:parts.length===2?parts[0]:'__ROOT__';
+    if(!g[key])g[key]=[];
+    g[key].push(f);
+  }
+  return g;
+}
+
+function deptName(k){
+  return k==='__ROOT__'?'DEPARTAMENTO':k.replace(/^\d+\s*/,'').trim().toUpperCase();
+}
+
+function findConsolidado(files){
+  return files.find(f=>f.name.toUpperCase().includes('CONSOLIDADO')&&
+    (f.name.endsWith('.xlsx')||f.name.endsWith('.xls')));
+}
+
+// ── Leer workbook ──────────────────────────────────────────────
+function readWB(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=e=>{
+      try{res(XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true}))}
+      catch(err){rej(err)}
+    };
+    r.onerror=rej;
+    r.readAsArrayBuffer(file);
+  });
+}
+
+// ── Normalizar texto posición ──────────────────────────────────
+const REPL=[
+  [/\bSERV\.\s*/gi,'SERVICIO DE '],
+  [/\bTRANSP\.\s*/gi,'TRANSPORTE '],
+  [/\bMTTO\b/gi,'MANTENIMIENTO'],
+  [/\bAYUDANTE\s+REP\.\s*/gi,'AYUDANTE DE REPARTO '],
+  [/\bREP\.\s*/gi,'REPARTO '],
+  [/\s{2,}/g,' '],
+];
+function mkTextoPos(motivo,semana){
+  let t=String(motivo||'').trim();
+  for(const[re,r]of REPL)t=t.replace(re,r);
+  t=t.replace(/\s*SEMANA\s*\d+\s*$/i,'').trim().toUpperCase();
+  return `${t} SEMANA ${semana}`;
+}
+
+// ── Formatear referencia ───────────────────────────────────────
+function fmtRef(rxh){
+  const s=String(rxh||'').trim();
+  const d=s.indexOf('-');
+  if(d<0)return'02-0'+s;
+  return`02-0${s.slice(0,d)}-${s.slice(d+1).padStart(7,'0')}`;
+}
+
+// ── Extraer fecha de emisión desde PDF de OC (Decodificación binaria) ─
+function extractDateFromPdfBuffer(arrayBuffer){
+  try{
+    const bytes=new Uint8Array(arrayBuffer);
+    let bin='';
+    const CHUNK=8192;
+    for(let i=0;i<bytes.length;i+=CHUNK){
+      bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+CHUNK));
+    }
+    const re=/<([0-9A-Fa-f]{4,})>/g;
+    let m;
+    const decoded=[];
+    while((m=re.exec(bin))!==null){
+      const hex=m[1];
+      let str='';
+      for(let c=0;c<hex.length;c+=2){
+        str+=String.fromCharCode(parseInt(hex.substr(c,2),16));
+      }
+      decoded.push(str);
+    }
+    for(let i=0;i<decoded.length;i++){
+      if(/emisi[oó]n/i.test(decoded[i])&&i+1<decoded.length){
+        const next=decoded[i+1].trim();
+        const dm=next.match(/^(\d{2})[./-](\d{2})[./-](\d{4})$/);
+        if(dm)return`${dm[1]}.${dm[2]}.${dm[3]}`;
+      }
+    }
+    for(const d of decoded){
+      const dm=d.match(/\b(\d{2})\.(\d{2})\.(\d{4})\b/);
+      if(dm)return dm[0];
+    }
+    const directMatch=bin.match(/Fecha\s+de\s+emisi[oó]n\s*:\s*(\d{2}[./-]\d{2}[./-]\d{4})/i);
+    if(directMatch)return directMatch[1].replace(/[\/-]/g,'.');
+  }catch(err){
+    console.warn('Error parseando PDF binario:',err);
+  }
+  return null;
+}
+
+// ── Formatear fecha (UTC Safe) ─────────────────────────────────
+function fmtDate(v){
+  if(!v)return'';
+  if(v instanceof Date){
+    return`${String(v.getUTCDate()).padStart(2,'0')}.${String(v.getUTCMonth()+1).padStart(2,'0')}.${v.getUTCFullYear()}`;
+  }
+  if(typeof v==='number'){
+    try{const p=XLSX.SSF.parse_date_code(v);if(p)return`${String(p.d).padStart(2,'0')}.${String(p.m).padStart(2,'0')}.${p.y}`}catch(_){}
+  }
+  return String(v);
+}
+
+// ── Detectar columnas ──────────────────────────────────────────
+function detectCols(hdr){
+  const H=hdr.map(h=>(h||'').toString().toUpperCase().replace(/[°\s]/g,''));
+  const f=(...terms)=>{for(const t of terms){const i=H.findIndex(h=>h.includes(t));if(i>=0)return i}return-1};
+  return{
+    iID:    f('ID'),
+    iFecha: f('FECHA'),
+    iSem:   f('SEM'),
+    iProv:  f('PROVINCIA','PROV'),
+    iMotivo:f('MOTIVO'),
+    iRUC:   f('RUC'),
+    iRxH:   f('RXH','NOC','N°'),
+    iValor: f('VALORIZ'),
+    iOC:    f('NOC','OC'),
+  };
+}
+
+// ── Construir filas de salida ──────────────────────────────────
+function buildRows(srcRows,cols,semana,ocDates={}){
+  const g=(row,i)=>(i>=0&&i<row.length)?row[i]:null;
+  let seq=1;
+  return srcRows.map(r=>{
+    const motivo=g(r,cols.iMotivo);
+    const rxh   =g(r,cols.iRxH);
+    const valor =g(r,cols.iValor);
+    const oc    =g(r,cols.iOC);
+    const ruc   =g(r,cols.iRUC);
+    const fecha =g(r,cols.iFecha);
+    const tp    =mkTextoPos(motivo,semana);
+
+    const ocStr =oc!=null?String(oc).trim():'';
+    const rxhStr=rxh!=null?String(rxh).trim().toUpperCase():'';
+
+    let fDoc=null;
+    let srcLabel='Consolidado';
+    if(ocStr&&ocDates['OC_'+ocStr]){
+      fDoc=ocDates['OC_'+ocStr];
+      srcLabel='OC '+ocStr;
+    }else if(rxhStr&&ocDates['RXH_'+rxhStr]){
+      fDoc=ocDates['RXH_'+rxhStr];
+      srcLabel='OC (RxH)';
+    }else if(ocDates['__DEFAULT__']){
+      fDoc=ocDates['__DEFAULT__'];
+      srcLabel='OC PDF';
+    }else{
+      fDoc=fmtDate(fecha);
+    }
+
+    return{
+      id_cabc:seq++,fecha_doc:fDoc,texto_cab:null,
+      referencia:fmtRef(rxh),id_posc_acr:2,
+      ruc:ruc!=null?String(ruc):null,
+      cond_pago:'CP02',ind_impto:'C0',tipo_detr:null,ind_detra:null,asignacion:null,
+      texto_pos:tp,id_posc_gto:2,cta_gasto:null,detalle:null,centro_cto:null,
+      importe_md:valor!=null?(parseFloat(String(valor).replace(/[^0-9.\-]/g,''))||0):0,
+      ind_impto_r:'C0',asignac_r:null,
+      texto_pos_t:tp,   // ← copia exacta de texto_pos
+      oc:ocStr||null,
+      _date_src:srcLabel
+    };
+  });
+}
+
+// ── Manejar archivos seleccionados ─────────────────────────────
+async function handleFiles(files){
+  if(typeof XLSX==='undefined'){alert('SheetJS no disponible. Verifica internet.');return}
+  allDepts={};
+  ['card-stats','card-preview','card-download'].forEach(id=>
+    document.getElementById(id).classList.add('hidden'));
+  document.getElementById('card-folders').classList.remove('hidden');
+
+  const groups=groupFiles(files);
+  let keys=Object.keys(groups).filter(k=>k!=='__ROOT__');
+  // Si no hay subcarpetas, usa ROOT como única carpeta
+  if(!keys.length&&groups['__ROOT__']){keys=['__ROOT__']}
+
+  const listEl=document.getElementById('folder-list');
+  listEl.innerHTML='';
+  for(const key of keys){
+    const cf=findConsolidado(groups[key]);
+    const el=document.createElement('div');
+    el.id=`fi-${CSS.escape(key)}`;el.className='folder-item';
+    el.innerHTML=`<span class="folder-icon">📁</span>
+      <div class="folder-info">
+        <div class="folder-name">${deptName(key)}</div>
+        <div class="folder-meta" id="m-${CSS.escape(key)}">${cf?cf.name:'⚠️ Sin archivo CONSOLIDADO'}</div>
+      </div>
+      <span class="folder-badge" id="b-${CSS.escape(key)}">⏳ Espera</span>`;
+    listEl.appendChild(el);
+  }
+
+  let done=0,totalRows=0,totalImporte=0;
+
+  for(const key of keys){
+    const dn=deptName(key);
+    const bid=`b-${CSS.escape(key)}`,mid=`m-${CSS.escape(key)}`,iid=`fi-${CSS.escape(key)}`;
+    const bel=document.getElementById(bid),mel=document.getElementById(mid),iel=document.getElementById(iid);
+    iel.className='folder-item processing';bel.className='folder-badge teal';bel.textContent='⚙️ Procesando';
+
+    const cf=findConsolidado(groups[key]);
+    if(!cf){
+      iel.className='folder-item error';bel.className='folder-badge red';bel.textContent='❌ Sin CONSOLIDADO';
+      done++;setProgress(done,keys.length);continue;
+    }
+    try{
+      // 1. Extraer fechas de emisión desde los PDFs de OC de la carpeta
+      const ocFiles=(groups[key]||[]).filter(f=>/OC.*\.pdf$/i.test(f.name)||(f.name.toUpperCase().includes('OC')&&f.name.toUpperCase().endsWith('.PDF')));
+      const ocDates={};
+      for(const ocf of ocFiles){
+        try{
+          const buf=await ocf.arrayBuffer();
+          const d=extractDateFromPdfBuffer(buf);
+          if(d){
+            const mOC=ocf.name.match(/OC\s*(\d+)/i);
+            const mRxH=ocf.name.match(/RXH\s*([A-Za-z0-9\-]+)/i);
+            if(mOC)ocDates['OC_'+mOC[1].trim()]=d;
+            if(mRxH)ocDates['RXH_'+mRxH[1].trim().toUpperCase()]=d;
+            if(!ocDates['__DEFAULT__'])ocDates['__DEFAULT__']=d;
+          }
+        }catch(e){
+          console.warn('No se pudo leer PDF de OC',ocf.name,e);
+        }
+      }
+
+      // 2. Leer archivo Excel Consolidado
+      const wb=await readWB(cf);
+      const shName=wb.SheetNames.find(n=>n.toLowerCase().includes('consolidado'))||wb.SheetNames[0];
+      const ws=wb.Sheets[shName];
+      const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
+      if(data.length<2)throw new Error('Archivo vacío');
+
+      // Encontrar fila de encabezados
+      let hdrIdx=0;
+      for(let i=0;i<Math.min(5,data.length);i++){
+        if(data[i].filter(c=>c!=null).length>=5){hdrIdx=i;break}
+      }
+      const cols=detectCols(data[hdrIdx]);
+      let rows=data.slice(hdrIdx+1).filter(r=>r&&r.some(c=>c!=null&&c!==''));
+
+      // Filtrar por departamento
+      if(cols.iProv>=0&&dn!=='DEPARTAMENTO'){
+        const filtered=rows.filter(r=>{
+          const pv=String(r[cols.iProv]||'').toUpperCase().trim();
+          return pv&&(pv.includes(dn)||dn.includes(pv));
+        });
+        if(filtered.length>0)rows=filtered;
+      }
+      if(!rows.length)throw new Error('Sin datos para este departamento');
+
+      // Detectar semana máxima y filtrar SOLO esas filas
+      let semana='?';
+      if(cols.iSem>=0){
+        const sems=rows.map(r=>Number(r[cols.iSem])).filter(n=>n>0&&n<60);
+        if(sems.length){
+          semana=Math.max(...sems);
+          rows=rows.filter(r=>Number(r[cols.iSem])===semana);
+        }
+      }
+
+      const outRows=buildRows(rows,cols,semana,ocDates);
+      const deptTitle=dn.split(' ').map(w=>w.charAt(0)+w.slice(1).toLowerCase()).join(' ');
+      const sheetLabel=`${deptTitle} Semana ${semana}`.substring(0,31);
+
+      allDepts[key]={sheetLabel,rows:outRows,dn};
+      totalRows+=outRows.length;
+      totalImporte+=outRows.reduce((s,r)=>s+(r.importe_md||0),0);
+
+      iel.className='folder-item done';bel.className='folder-badge';
+      bel.style.background='rgba(112,173,71,.2)';bel.style.color='var(--g-light)';
+      bel.textContent=`✅ ${outRows.length} registros`;
+      mel.textContent=`${sheetLabel} · ${cf.name}`;
+    }catch(err){
+      console.error(key,err);
+      iel.className='folder-item error';bel.className='folder-badge red';
+      bel.textContent='❌ Error';mel.textContent=`❌ ${err.message}`;
+    }
+    done++;setProgress(done,keys.length);
+  }
+
+  if(Object.keys(allDepts).length>0){
+    renderStats(Object.keys(allDepts).length,totalRows,totalImporte);
+    renderPreview();
+    document.getElementById('card-download').classList.remove('hidden');
+    document.getElementById('prog-label').textContent='✅ Procesamiento completo';
+  }
+}
+
+function setProgress(done,total){
+  const pct=Math.round(done/total*100);
+  document.getElementById('prog-fill').style.width=pct+'%';
+  document.getElementById('prog-pct').textContent=pct+'%';
+  document.getElementById('prog-label').textContent=
+    done<total?`Procesando ${done}/${total}...`:`✅ ${done}/${total} completados`;
+}
+
+const fmtMoney=v=>'S/ '+parseFloat(v||0).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+function renderStats(dc,rc,tot){
+  document.getElementById('stats-grid').innerHTML=`
+    <div class="stat-box"><div class="stat-value">${dc}</div><div class="stat-label">Departamentos</div></div>
+    <div class="stat-box"><div class="stat-value">${rc}</div><div class="stat-label">Registros totales</div></div>
+    <div class="stat-box"><div class="stat-value money">${fmtMoney(tot)}</div><div class="stat-label">Total Importe MD</div></div>
+    <div class="stat-box"><div class="stat-value">${dc}</div><div class="stat-label">Hojas en el Excel</div></div>`;
+  document.getElementById('card-stats').classList.remove('hidden');
+}
+
+let currentActiveKey=null;
+
+function applyQuickDate(){
+  const input=document.getElementById('quick-date-val');
+  const val=(input?input.value:'').trim();
+  if(!val){alert('Ingresa una fecha válida (ej: 26.08.2026)');return}
+  if(currentActiveKey&&allDepts[currentActiveKey]){
+    allDepts[currentActiveKey].rows.forEach(r=>{
+      r.fecha_doc=val;
+      r._date_src='Manual ('+val+')';
+    });
+    fillTable(currentActiveKey);
+  }
+}
+
+function renderPreview(){
+  const keys=Object.keys(allDepts);
+  const tabsEl=document.getElementById('dept-tabs');
+  tabsEl.innerHTML='';
+  let active=keys[0];
+  currentActiveKey=active;
+  keys.forEach((key,i)=>{
+    const tab=document.createElement('button');
+    tab.className='dept-tab'+(i===0?' active':'');
+    tab.textContent=allDepts[key].sheetLabel;
+    tab.onclick=()=>{
+      document.querySelectorAll('.dept-tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      active=key;
+      currentActiveKey=key;
+      fillTable(key);
+    };
+    tabsEl.appendChild(tab);
+  });
+  fillTable(active);
+  document.getElementById('card-preview').classList.remove('hidden');
+}
+
+function fillTable(key){
+  currentActiveKey=key;
+  const{rows}=allDepts[key];
+  if(rows&&rows.length>0){
+    const dVal=rows[0].fecha_doc||'';
+    const dSrc=rows[0]._date_src||'Consolidado';
+    const qInput=document.getElementById('quick-date-val');
+    if(qInput)qInput.value=dVal;
+    const bSrc=document.getElementById('date-source-badge');
+    if(bSrc){
+      if(dSrc.includes('OC')){
+        bSrc.style.background='rgba(112,173,71,.25)';
+        bSrc.style.color='var(--g-light)';
+        bSrc.textContent=`✅ Extraída de Orden de Compra: ${dVal}`;
+      }else if(dSrc.includes('Manual')){
+        bSrc.style.background='rgba(0,176,240,.25)';
+        bSrc.style.color='var(--cyan)';
+        bSrc.textContent=`✏️ Modificada manualmente: ${dVal}`;
+      }else{
+        bSrc.style.background='rgba(255,215,0,.2)';
+        bSrc.style.color='var(--gold)';
+        bSrc.textContent=`📄 Desde Consolidado: ${dVal}`;
+      }
+    }
+  }
+
+  document.getElementById('preview-thead').innerHTML='<tr>'+
+    COLS.map(c=>`<th class="${c.th==='teal'?'th-teal':c.th==='oc'?'th-oc':''}">${c.label}</th>`).join('')+'</tr>';
+  const tbody=document.getElementById('preview-tbody');
+  tbody.innerHTML=rows.slice(0,25).map(row=>'<tr>'+COLS.map(c=>{
+    let v=row[c.key]??'',cls='';
+    if(c.key==='oc')cls='td-oc';
+    if(c.key==='importe_md'){cls='td-amt';v=fmtMoney(v)}
+    if(c.key==='fecha_doc'){
+      return`<td class="${cls}" style="font-weight:600;color:var(--gold)" title="Fecha Doc: ${v}">${v}</td>`;
+    }
+    return`<td class="${cls}" title="${v}">${v}</td>`;
+  }).join('')+'</tr>').join('');
+  const tot=rows.reduce((s,r)=>s+(r.importe_md||0),0);
+  tbody.innerHTML+='<tr class="total-tr">'+COLS.map(c=>{
+    if(c.key==='id_cabc')return'<td>TOTAL</td>';
+    if(c.key==='importe_md')return`<td class="td-amt">${fmtMoney(tot)}</td>`;
+    return'<td></td>';
+  }).join('')+'</tr>';
+  if(rows.length>25)tbody.innerHTML+=`<tr><td colspan="${COLS.length}"
+    style="text-align:center;color:var(--txt-muted);padding:.5rem;font-size:.75rem">
+    … y ${rows.length-25} registros más incluidos en el Excel</td></tr>`;
+}
+
+// ── Generar y descargar Excel ──────────────────────────────────
+function downloadExcel(){
+  const btn=document.getElementById('btn-dl');
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span>&nbsp;Generando Excel…';
+  setTimeout(()=>{
+    try{
+      const wb=XLSX.utils.book_new();
+      const bdr=(c='BFBFBF')=>{const s={style:'thin',color:{rgb:c}};return{left:s,right:s,top:s,bottom:s}};
+      const S={
+        hG:{fill:{fgColor:{rgb:'375623'}},font:{bold:true,color:{rgb:'FFFFFF'},name:'Calibri',sz:10},alignment:{horizontal:'center',vertical:'center',wrapText:true},border:bdr()},
+        hO:{fill:{fgColor:{rgb:'70AD47'}},font:{bold:true,color:{rgb:'FFFFFF'},name:'Calibri',sz:10},alignment:{horizontal:'center',vertical:'center',wrapText:true},border:bdr()},
+        hT:{fill:{fgColor:{rgb:'00B0F0'}},font:{bold:true,color:{rgb:'000000'},name:'Calibri',sz:10},alignment:{horizontal:'center',vertical:'center',wrapText:true},border:bdr()},
+        hC:{fill:{fgColor:{rgb:'1F4E79'}},font:{bold:true,color:{rgb:'FFFFFF'},name:'Calibri',sz:10},alignment:{horizontal:'center',vertical:'center',wrapText:true},border:bdr()},
+        dB:{font:{name:'Calibri',sz:10},alignment:{vertical:'center'},border:bdr()},
+        dC:{font:{name:'Calibri',sz:10},alignment:{horizontal:'center',vertical:'center'},border:bdr()},
+        dA:{fill:{fgColor:{rgb:'FFF2CC'}},font:{name:'Calibri',sz:10,bold:true},alignment:{horizontal:'right',vertical:'center'},border:bdr(),numFmt:'"S/ "#,##0.00'},
+        dO:{fill:{fgColor:{rgb:'DEEAF1'}},font:{name:'Calibri',sz:10,bold:true,color:{rgb:'1F4E79'}},alignment:{horizontal:'center',vertical:'center'},border:bdr()},
+        tL:{fill:{fgColor:{rgb:'375623'}},font:{bold:true,color:{rgb:'FFFFFF'},name:'Calibri',sz:10},alignment:{horizontal:'center',vertical:'center'},border:bdr('7F7F7F')},
+        tA:{fill:{fgColor:{rgb:'375623'}},font:{bold:true,color:{rgb:'FFD700'},name:'Calibri',sz:11},alignment:{horizontal:'right',vertical:'center'},border:bdr('7F7F7F'),numFmt:'"S/ "#,##0.00'},
+        tX:{fill:{fgColor:{rgb:'375623'}},font:{name:'Calibri',sz:10,color:{rgb:'FFFFFF'}},alignment:{vertical:'center'},border:bdr('7F7F7F')},
+      };
+      const hSt=th=>th==='teal'?S.hT:th==='oc'?S.hC:th==='green'?S.hG:S.hO;
+      const CTR=['id_cabc','fecha_doc','id_posc_acr','ruc','cond_pago','ind_impto','tipo_detr',
+                 'ind_detra','asignacion','id_posc_gto','cta_gasto','ind_impto_r','asignac_r'];
+      const dSt=(key,odd)=>{
+        let b=key==='oc'?{...S.dO}:key==='importe_md'?{...S.dA}:CTR.includes(key)?{...S.dC}:{...S.dB};
+        if(!['oc','importe_md'].includes(key))b.fill={fgColor:{rgb:odd?'FFFFFF':'F2F2F2'}};
+        return b;
+      };
+
+      for(const key of Object.keys(allDepts)){
+        const{sheetLabel,rows}=allDepts[key];
+        const aoa=[COLS.map(c=>c.label)];
+        for(const row of rows)aoa.push(COLS.map(c=>c.key==='importe_md'?(row[c.key]||0):(row[c.key]??null)));
+        const tot=rows.reduce((s,r)=>s+(r.importe_md||0),0);
+        aoa.push(COLS.map(c=>c.key==='id_cabc'?'TOTAL':c.key==='importe_md'?tot:null));
+
+        const ws=XLSX.utils.aoa_to_sheet(aoa);
+        const nR=aoa.length,nC=COLS.length;
+
+        for(let r=0;r<nR;r++){
+          for(let c=0;c<nC;c++){
+            const ref=XLSX.utils.encode_cell({r,c});
+            if(!ws[ref])ws[ref]={v:null,t:'z'};
+            const col=COLS[c];
+            ws[ref].s=r===0?hSt(col.th):r===nR-1?(col.key==='importe_md'?S.tA:col.key==='id_cabc'?S.tL:S.tX):dSt(col.key,r%2===1);
+            if(col.key==='importe_md'&&r>0){ws[ref].t='n';ws[ref].z='"S/ "#,##0.00'}
+          }
+        }
+        ws['!cols']=COLS.map(c=>({wch:c.w}));
+        ws['!rows']=[{hpt:32}];
+        for(let i=1;i<nR-1;i++)ws['!rows'].push({hpt:18});
+        ws['!rows'].push({hpt:22});
+        ws['!freeze']={xSplit:0,ySplit:1,topLeftCell:'A2',activePane:'bottomLeft'};
+        ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:nR-1,c:nC-1}})};
+        ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:nR-1,c:nC-1}});
+        XLSX.utils.book_append_sheet(wb,ws,sheetLabel);
+      }
+      XLSX.writeFile(wb,'Masivo Reporte.xlsx');
+    }catch(err){alert('Error: '+err.message);console.error(err)}
+    finally{btn.disabled=false;btn.innerHTML='📥 &nbsp;Descargar Masivo Reporte.xlsx'}
+  },60);
+}
+</script>
+</body>
+</html>
