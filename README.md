@@ -75,7 +75,7 @@ Si prefieres ejecutar el proceso por línea de comandos:
 
 ```bash
 # 1. Instalar dependencias (solo primera vez)
-pip install -r requirements.txt
+pip install -r scripts/requirements.txt
 
 # 2. Ejecutar el procesador
 python scripts/procesar_masivo.py
