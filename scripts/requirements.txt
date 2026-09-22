@@ -1,2 +1,5 @@
 openpyxl>=3.1.0
 pypdf>=3.0.0
+pywin32>=306
+pyautogui>=0.9.54
+pywinauto>=0.6.8
