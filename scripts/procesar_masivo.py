@@ -70,39 +70,141 @@ COL_DEFS = [
     (21, 'U', 'N° OC',                   14,    fill_hdr_teal,  font_hdr_black, al_c, None),
 ]
 
-def extraer_fechas_oc(dir_path):
-    """Extrae las fechas de emisión de todos los PDFs de OC en la carpeta."""
+MESES_PE = {
+    'enero':'01', 'febrero':'02', 'marzo':'03', 'abril':'04', 'mayo':'05', 'junio':'06',
+    'julio':'07', 'agosto':'08', 'setiembre':'09', 'septiembre':'09', 'octubre':'10',
+    'noviembre':'11', 'diciembre':'12'
+}
+
+def escanear_documentos_pdf(dir_path):
+    """
+    Escanea todos los PDFs de la carpeta detectando:
+    - Formato Imagen 1: Factura Electrónica (Importe Total, IGV, Subtotal)
+    - Formato Imagen 2: Recibo por Honorarios Electrónico (Total Honorarios / Neto)
+    - Órdenes de Compra (OC): Fechas de emisión
+    """
+    doc_map = {}
     oc_dates = {}
-    oc_files = [f for f in os.listdir(dir_path) if f.upper().endswith('.PDF') and 'OC' in f.upper()]
-    for fname in oc_files:
+
+    pdf_files = [f for f in os.listdir(dir_path) if f.upper().endswith('.PDF')]
+    for fname in pdf_files:
         fpath = os.path.join(dir_path, fname)
+        txt = ""
+        # 1. Intentar extracción con pypdf
         try:
-            with open(fpath, 'rb') as fp:
-                raw = fp.read()
-            tokens = re.findall(rb'<([0-9A-Fa-f]{4,})>', raw)
-            decoded = []
-            for t in tokens:
-                try:
-                    decoded.append(bytes.fromhex(t.decode()).decode('latin1'))
-                except Exception:
-                    pass
-            for i, s in enumerate(decoded):
-                if 'emisi' in s.lower() and i + 1 < len(decoded):
-                    cand = decoded[i + 1].strip()
-                    if re.match(r'^\d{2}[./-]\d{2}[./-]\d{4}$', cand):
-                        cand = cand.replace('/', '.').replace('-', '.')
-                        m_oc = re.search(r'OC\s*(\d+)', fname, re.IGNORECASE)
-                        m_rxh = re.search(r'RXH\s*([A-Za-z0-9\-]+)', fname, re.IGNORECASE)
-                        if m_oc:
-                            oc_dates['OC_' + m_oc.group(1).strip()] = cand
-                        if m_rxh:
-                            oc_dates['RXH_' + m_rxh.group(1).strip().upper()] = cand
-                        if '__DEFAULT__' not in oc_dates:
-                            oc_dates['__DEFAULT__'] = cand
-                        break
-        except Exception as e:
-            print(f"  [Aviso] No se pudo leer {fname}: {e}")
-    return oc_dates
+            import pypdf
+            reader = pypdf.PdfReader(fpath)
+            txt = ' '.join(page.extract_text() or '' for page in reader.pages)
+        except Exception:
+            pass
+
+        # 2. Fallback decodificación binaria / hex tokens si txt es corto
+        if len(txt.strip()) < 15:
+            try:
+                with open(fpath, 'rb') as fp:
+                    raw = fp.read()
+                tokens = re.findall(rb'<([0-9A-Fa-f]{4,})>', raw)
+                decoded = []
+                for t in tokens:
+                    try:
+                        decoded.append(bytes.fromhex(t.decode()).decode('latin1'))
+                    except Exception:
+                        pass
+                txt += ' ' + ' '.join(decoded)
+            except Exception:
+                pass
+
+        clean_txt = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\ufffd\xa0]', ' ', txt)
+        clean_txt = re.sub(r'\s+', ' ', clean_txt)
+        txt_upper = clean_txt.upper()
+
+        fn_upper = fname.upper()
+
+        # Descartar archivos que son HES, Solped u Orden de Compra antes de clasificar comprobantes
+        is_hes_oc_solped = bool(re.search(r'\b(HES|SOLPED|PEDIDO|OC)\b', fn_upper)) or ('ORDEN DE' in txt_upper)
+
+        # Detección Formato Imagen 1: Factura Electrónica
+        is_factura = (not is_hes_oc_solped) and (
+            fn_upper.startswith('FACT') or
+            ('FACTURA ELECTRONICA' in txt_upper) or
+            ('FACTURA' in txt_upper and ('IMPORTE TOTAL' in txt_upper or 'SUB TOTAL' in txt_upper))
+        )
+
+        # Detección Formato Imagen 2: Recibo por Honorarios
+        is_rxh = (not is_hes_oc_solped) and (
+            fn_upper.startswith('RXH') or
+            ('RECIBO POR HONORARIOS ELECTRONICO' in txt_upper) or
+            ('RECIBO POR HONORARIOS' in txt_upper)
+        )
+
+        # Detección Orden de Compra
+        is_oc = bool(re.search(r'\bOC\b', fn_upper)) or ('ORDEN DE' in txt_upper)
+
+        # Extraer clave de documento (ej: E001-1388 -> E0011388, E001 134 -> E001134)
+        m_num = re.search(r'([EFEB]\d{3})[-\s]*(\d+)', fname + ' ' + clean_txt, re.IGNORECASE)
+        num_key = (m_num.group(1) + m_num.group(2)).upper() if m_num else None
+
+        # Extraer RUC del PDF
+        m_ruc = re.search(r'R\.?U\.?C\.?\s*[:\-]?\s*(\d{11})', clean_txt, re.IGNORECASE)
+        pdf_ruc = m_ruc.group(1) if m_ruc else None
+
+        # Extraer Importe
+        total_monto = None
+        if is_factura:
+            # Factura: elegir el Importe Total (con IGV)
+            m_tot = re.search(r'Importe\s+Total\s*:\s*(?:S/?\s*)?([0-9,]+\.[0-9]{2})', clean_txt, re.I)
+            if m_tot:
+                total_monto = float(m_tot.group(1).replace(',', ''))
+        elif is_rxh:
+            # Recibo por Honorario: Total Neto Recibido o Total por honorarios
+            m_tot = re.search(r'Total\s+Neto\s+Recibido\s*:\s*(?:SOLES\s*)?([0-9,]+\.[0-9]{2})', clean_txt, re.I) or \
+                    re.search(r'Total\s+por\s+honorarios\s*:\s*([0-9,]+\.[0-9]{2})', clean_txt, re.I)
+            if m_tot:
+                total_monto = float(m_tot.group(1).replace(',', ''))
+            else:
+                m_num_after = re.search(r'\b202\d\s+([0-9,]+\.[0-9]{2})', clean_txt)
+                if m_num_after:
+                    total_monto = float(m_num_after.group(1).replace(',', ''))
+
+        # Extraer Fecha de Emisión
+        fecha_emision = None
+        m_date = re.search(r'Fecha\s+de\s+[eE]misi[oó]n\s*:\s*(\d{2}[./-]\d{2}[./-]\d{4})', clean_txt, re.I)
+        if m_date:
+            fecha_emision = m_date.group(1).replace('/', '.').replace('-', '.')
+        else:
+            m_date2 = re.search(r'(\d{1,2})\s+(?:de\s+)?([A-Za-z]+)\s+(?:del?\s+)?(\d{4})', clean_txt, re.I)
+            if m_date2:
+                m_mes = m_date2.group(2).lower()
+                if m_mes in MESES_PE:
+                    fecha_emision = f"{int(m_date2.group(1)):02d}.{MESES_PE[m_mes]}.{m_date2.group(3)}"
+
+        # Guardar en mapas
+        doc_info = {
+            'tipo': 'FACTURA' if is_factura else 'RXH' if is_rxh else 'OC' if is_oc else 'OTRO',
+            'num_key': num_key,
+            'ruc': pdf_ruc,
+            'total': total_monto,
+            'fecha': fecha_emision,
+            'fname': fname
+        }
+
+        if is_factura or is_rxh:
+            if num_key:
+                doc_map[num_key] = doc_info
+            doc_map[fname.upper()] = doc_info
+
+        # Fechas de OC
+        if is_oc and fecha_emision:
+            m_oc = re.search(r'\bOC[\s_\-]*(\d+)', fname, re.IGNORECASE)
+            m_rxh = re.search(r'\b(?:RXH|FACTURA)[\s_\-]*([A-Za-z0-9\-]+)', fname, re.IGNORECASE)
+            if m_oc:
+                oc_dates['OC_' + m_oc.group(1).strip()] = fecha_emision
+            if m_rxh:
+                oc_dates['RXH_' + m_rxh.group(1).strip().upper()] = fecha_emision
+            if '__DEFAULT__' not in oc_dates:
+                oc_dates['__DEFAULT__'] = fecha_emision
+
+    return doc_map, oc_dates
 
 def normalizar_texto_pos(motivo, semana):
     """Estandariza abreviaturas según la regla de negocio."""
@@ -120,18 +222,30 @@ def normalizar_texto_pos(motivo, semana):
     t = re.sub(r'\s*SEMANA\s*\d+\s*$', '', t, flags=re.IGNORECASE).strip().upper()
     return f"{t} SEMANA {semana}"
 
-def formatear_referencia(rxh):
-    """Convierte E001-160 en 02-0E001-0000160."""
-    s = str(rxh or '').strip()
-    if '-' not in s:
-        return '02-0' + s
-    parts = s.split('-', 1)
-    return f"02-0{parts[0]}-{parts[1].zfill(7)}"
+def formatear_referencia(doc_num, tipo='RXH'):
+    """
+    Formatea la referencia para SAP según tipo de comprobante:
+    - Factura (Formato Imagen 1): 01-0{SERIE}-{NUMERO_7_DIGITOS}
+    - Recibo por Honorarios (Formato Imagen 2): 02-0{SERIE}-{NUMERO_7_DIGITOS}
+    """
+    s = str(doc_num or '').strip()
+    prefix = '01-0' if str(tipo).upper() in ('FACTURA', 'FACT', 'FAC', '01') else '02-0'
+    if s.startswith('01-0') or s.startswith('02-0'):
+        return s
+    s = re.sub(r'^[^\w]+', '', s)
+    m = re.match(r'^([A-Za-z0-9]{3,4})[\s\-]+(\d+)$', s)
+    if m:
+        return f"{prefix}{m.group(1).upper()}-{m.group(2).zfill(7)}"
+    if '-' in s:
+        parts = s.split('-', 1)
+        return f"{prefix}{parts[0].strip().upper()}-{parts[1].strip().zfill(7)}"
+    return prefix + s
 
 def procesar_departamento(dir_path, wb_out):
     """Procesa una subcarpeta de departamento y agrega una hoja al workbook."""
     folder_name = os.path.basename(dir_path)
-    dept_clean = re.sub(r'^\d+\s*', '', folder_name).strip().upper()
+    dept_clean = re.sub(r'^\d+[\s_\-]*', '', folder_name)
+    dept_clean = re.sub(r'[\s_\-]*(?:SEM(?:ANA)?[\s_\-]*\d+).*$', '', dept_clean, flags=re.IGNORECASE).strip().upper()
     print(f"\n📂 Procesando carpeta: {folder_name} (Depto: {dept_clean})")
 
     # Buscar consolidado Excel
@@ -143,9 +257,9 @@ def procesar_departamento(dir_path, wb_out):
     cons_path = os.path.join(dir_path, excel_files[0])
     print(f"  📄 Consolidado encontrado: {excel_files[0]}")
 
-    # Extraer fechas de OCs (PDF)
-    oc_dates = extraer_fechas_oc(dir_path)
-    print(f"  🔍 Fechas detectadas en PDFs de OC: {len(oc_dates)} registros (Fecha base: {oc_dates.get('__DEFAULT__', 'Ninguna')})")
+    # Extraer documentos PDF (Facturas, RH, OCs)
+    doc_map, oc_dates = escanear_documentos_pdf(dir_path)
+    print(f"  🔍 Documentos PDF detectados: {len(doc_map)} comprobantes, {len(oc_dates)} fechas OC")
 
     # Leer Consolidado
     wb_in = openpyxl.load_workbook(cons_path, data_only=True)
@@ -168,15 +282,15 @@ def procesar_departamento(dir_path, wb_out):
                     return idx + 1
         return -1
 
-    c_id     = find_col('ID')
-    c_fecha  = find_col('FECHA')
-    c_sem    = find_col('SEM')
-    c_prov   = find_col('PROVINCIA', 'PROV')
-    c_motivo = find_col('MOTIVO')
-    c_ruc    = find_col('RUC')
-    c_rxh    = find_col('RXH', 'NOC', 'N°')
-    c_valor  = find_col('VALORIZ')
-    c_oc     = find_col('NOC', 'OC')
+    c_id      = find_col('ID')
+    c_fecha   = find_col('FECHA')
+    c_sem     = find_col('SEM')
+    c_prov    = find_col('PROVINCIA', 'PROV')
+    c_motivo  = find_col('MOTIVO')
+    c_ruc     = find_col('RUC')
+    c_tipodoc = find_col('TIPODOC', 'TIPO')
+    c_rxh     = find_col('RXH', 'NOC', 'N°')
+    c_oc      = find_col('NOC', 'OC')
 
     # Filtrar filas válidas
     raw_rows = []
@@ -224,18 +338,65 @@ def procesar_departamento(dir_path, wb_out):
         is_odd = (seq % 2 == 1)
         row_fill = fill_white if is_odd else fill_alt
 
-        motivo = ws_in.cell(r, c_motivo).value if c_motivo > 0 else ''
-        rxh    = ws_in.cell(r, c_rxh).value if c_rxh > 0 else ''
-        valor  = ws_in.cell(r, c_valor).value if c_valor > 0 else 0
-        oc     = str(ws_in.cell(r, c_oc).value or '').strip() if c_oc > 0 else ''
-        ruc    = str(ws_in.cell(r, c_ruc).value or '').strip() if c_ruc > 0 else ''
+        motivo   = ws_in.cell(r, c_motivo).value if c_motivo > 0 else ''
+        rxh      = ws_in.cell(r, c_rxh).value if c_rxh > 0 else ''
+        oc       = str(ws_in.cell(r, c_oc).value or '').strip() if c_oc > 0 else ''
+        ruc      = str(ws_in.cell(r, c_ruc).value or '').strip() if c_ruc > 0 else ''
+        tipodoc  = str(ws_in.cell(r, c_tipodoc).value or '').strip().upper() if c_tipodoc > 0 else ''
         fecha_orig = ws_in.cell(r, c_fecha).value if c_fecha > 0 else None
 
         tp = normalizar_texto_pos(motivo, semana)
 
-        # Resolver fecha doc (Prioridad: OC PDF -> Consolidado)
+        # Buscar coincidencia con PDF escaneado
+        rxh_clean = re.sub(r'[\s\-]', '', str(rxh or '')).upper()
+        matched_pdf = doc_map.get(rxh_clean)
+        if not matched_pdf and rxh_clean:
+            # Búsqueda difusa en el mapa de documentos
+            for k, doc in doc_map.items():
+                if k in rxh_clean or rxh_clean in k:
+                    matched_pdf = doc
+                    break
+
+        # Determinar si es FACTURA (Formato Imagen 1) o RECIBO POR HONORARIOS (Formato Imagen 2)
+        rxh_upper = str(rxh or '').strip().upper()
+        if any(k in tipodoc for k in ('FACTURA', 'FACT', 'FAC', '01')):
+            es_factura = True
+        elif matched_pdf and matched_pdf.get('tipo') == 'FACTURA':
+            es_factura = True
+        elif rxh_upper.startswith('F') or ('FACT' in rxh_upper):
+            es_factura = True
+        elif ruc.startswith('20') and not any(k in tipodoc for k in ('RXH', 'RH', 'HONORARIO')):
+            es_factura = True
+        elif matched_pdf and matched_pdf.get('tipo') == 'RXH':
+            es_factura = False
+        elif any(k in tipodoc for k in ('RXH', 'RH', 'HONORARIO')):
+            es_factura = False
+        else:
+            es_factura = False
+
+        tipo_final = 'FACTURA' if es_factura else 'RXH'
+
+        # Asignar Importe: EN CASO DE FACTURA ELEGIR EL IMPORTE TOTAL
+        if es_factura:
+            if matched_pdf and matched_pdf.get('total') is not None:
+                val_num = matched_pdf['total']
+            else:
+                val_num = None
+                print(f"⚠️ No se pudo leer el Importe Total de la factura {rxh}; VALORIZADO quedará vacío.")
+            ind_impto_code = 'C1'  # 18% IGV en SAP
+        else:
+            if matched_pdf and matched_pdf.get('total') is not None:
+                val_num = matched_pdf['total']
+            else:
+                val_num = None
+                print(f"⚠️ No se pudo leer el importe neto del RH {rxh}; VALORIZADO quedará vacío.")
+            ind_impto_code = 'C0'  # Inafecto / 0% IGV en SAP
+
+        # Resolver fecha doc (Prioridad: PDF de Factura/RH -> OC PDF -> Consolidado)
         fdoc = None
-        if oc and ('OC_' + oc) in oc_dates:
+        if matched_pdf and matched_pdf.get('fecha'):
+            fdoc = matched_pdf['fecha']
+        elif oc and ('OC_' + oc) in oc_dates:
             fdoc = oc_dates['OC_' + oc]
         elif rxh and ('RXH_' + str(rxh).strip().upper()) in oc_dates:
             fdoc = oc_dates['RXH_' + str(rxh).strip().upper()]
@@ -246,17 +407,18 @@ def procesar_departamento(dir_path, wb_out):
         else:
             fdoc = str(fecha_orig or '')
 
-        val_num = float(valor or 0)
+        # Referencia formateada: 01- para Factura, 02- para RH
+        ref_formateada = formatear_referencia(rxh, tipo=tipo_final)
 
         cols_data = [
             (1,  seq,                                  al_c, None,            row_fill,    font_data),
             (2,  fdoc,                                 al_c, None,            row_fill,    font_data),
             (3,  None,                                 al_l, None,            row_fill,    font_data),
-            (4,  formatear_referencia(rxh),            al_c, None,            row_fill,    font_data),
+            (4,  ref_formateada,                       al_c, None,            row_fill,    font_data),
             (5,  2,                                    al_c, None,            row_fill,    font_data),
             (6,  ruc,                                  al_c, None,            row_fill,    font_data),
             (7,  'CP02',                               al_c, None,            row_fill,    font_data),
-            (8,  'C0',                                 al_c, None,            row_fill,    font_data),
+            (8,  ind_impto_code,                       al_c, None,            row_fill,    font_data),
             (9,  None,                                 al_c, None,            row_fill,    font_data),
             (10, None,                                 al_c, None,            row_fill,    font_data),
             (11, None,                                 al_c, None,            row_fill,    font_data),
@@ -266,7 +428,7 @@ def procesar_departamento(dir_path, wb_out):
             (15, None,                                 al_l, None,            row_fill,    font_data),
             (16, None,                                 al_c, None,            row_fill,    font_data),
             (17, val_num,                              al_r, '"S/ "#,##0.00', fill_importe, font_bold),
-            (18, 'C0',                                 al_c, None,            row_fill,    font_data),
+            (18, ind_impto_code,                       al_c, None,            row_fill,    font_data),
             (19, None,                                 al_c, None,            row_fill,    font_data),
             (20, tp,                                   al_l, None,            row_fill,    font_data),
             (21, oc if oc else None,                   al_c, None,            fill_oc,     font_oc),
@@ -312,32 +474,48 @@ def main():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     print("=" * 60)
     print("  GENERADOR MASIVO DE REPORTES SAP (LA CALERA)")
+    print("  Regla: Factura -> Importe Total | RH -> Importe Neto")
     print("=" * 60)
     print(f"Directorio de trabajo: {base_dir}")
 
-    subdirs = [os.path.join(base_dir, d) for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) and not d.startswith('.')]
+    # Búsqueda recursiva de carpetas que contengan archivos de consolidado
+    subdirs = []
+    for root, dirs, files in os.walk(base_dir):
+        if any(p in root for p in ['.git', '.agents', '__pycache__', 'scratch']):
+            continue
+        if any(f.lower().endswith(('.xlsx', '.xls')) and 'CONSOLIDADO' in f.upper() and not f.startswith('~$') for f in files):
+            subdirs.append(root)
+
+    subdirs.sort()
 
     wb_out = Workbook()
     wb_out.remove(wb_out.active)  # remover hoja vacía por defecto
 
     procesados = 0
     for sdir in subdirs:
-        if any(f.lower().endswith(('.xlsx', '.xls')) and 'CONSOLIDADO' in f.upper() for f in os.listdir(sdir)):
-            ok = procesar_departamento(sdir, wb_out)
-            if ok:
-                procesados += 1
+        ok = procesar_departamento(sdir, wb_out)
+        if ok:
+            procesados += 1
 
     if procesados == 0:
         print("\n⚠️ No se encontraron carpetas con archivos de consolidado para procesar.")
         return
 
     out_file = os.path.join(base_dir, 'Masivo Reporte.xlsx')
-    wb_out.save(out_file)
-    print("\n" + "=" * 60)
-    print(f"🎉 Proceso finalizado exitosamente.")
-    print(f"📊 Departamentos procesados: {procesados}")
-    print(f"📁 Archivo generado: {out_file}")
-    print("=" * 60)
+    try:
+        wb_out.save(out_file)
+        print("\n" + "=" * 60)
+        print(f"🎉 Proceso finalizado exitosamente.")
+        print(f"📊 Departamentos procesados: {procesados}")
+        print(f"📁 Archivo generado: {out_file}")
+        print("=" * 60)
+    except PermissionError:
+        alt_file = os.path.join(base_dir, 'Masivo Reporte (Actualizado).xlsx')
+        wb_out.save(alt_file)
+        print("\n" + "=" * 60)
+        print(f"⚠️ El archivo 'Masivo Reporte.xlsx' está abierto en Excel y bloqueado.")
+        print(f"📁 Se generó una copia con los datos actualizados en: {alt_file}")
+        print("=" * 60)
 
 if __name__ == '__main__':
     main()

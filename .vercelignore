@@ -1,0 +1,15 @@
+# El despliegue público contiene únicamente la interfaz estática.
+expedientes/
+docs/
+scripts/
+tests/
+*.xlsx
+*.xls
+*.pdf
+*.py
+*.vbs
+*.txt
+.git/
+.agents/
+.codex/
+.calera_renombrado/

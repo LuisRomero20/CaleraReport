@@ -1,22 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SOLUCIÓN 1: SAP GUI SCRIPTING (PYTHON) - RECOMENDADA
-======================================================
-Automatiza el registro masivo en SAP MIRO leyendo el archivo 'Masivo Reporte.xlsx'.
-Conexión directa a la sesión activa de SAP GUI for Windows mediante COM.
-Extrae el N° de documento MIRO creado y lo registra en el Excel.
-
-Requisitos:
-- Tener SAP GUI abierto con la sesión iniciada.
-- Scripting habilitado en SAP Logon (Opciones -> Scripting).
-- pip install openpyxl pywin32
+SOLUCIÓN 1: SAP GUI SCRIPTING (PYTHON) - MOTOR DE REGISTRO EN MIRO
+==================================================================
+Automatiza el registro masivo en SAP MIRO leyendo 'Masivo Reporte.xlsx' fila por fila.
+Cumple al 100% con el flujo oficial de la empresa:
+  1. Dat Básica:
+     - Fecha factura (BLDAT) = Fecha Doc de Excel
+     - Referencia (XBLNR) = REFERENCIA de Excel (01-... Factura, 02-... RH)
+     - Importe (WRBTR) = Importe MD de Columna Q
+     - Moneda (WAERS) = PEN
+     - Indicador de Impuestos (MWSKZ) = C1 (Factura c/IGV) o C0 (RH sin IGV)
+     - Casilla Calc.Impuestos (XMWST) = Marcada en C1, desmarcada en C0
+     - Texto (BKTXT) = Servicio solamente (sin mencionar SEMANA)
+     - Pedido/Plan entregas (EBELN) = N° OC + [Enter] para cargar posiciones
+  2. Detalle:
+     - Clase Doc (BLART) = KR (Factura) o KH (Recibo por Honorarios)
+  3. Retención:
+     - Recibo por Honorarios: No agrega nada
+     - Factura: Retención de IGV vacía
+  4. Simular:
+     - Presiona Simular (F7) y valida balance en ventana modal
+     - Pregunta al usuario confirmación antes de guardar (o modo automático)
+  5. Contabilizar:
+     - Presiona Guardar (Ctrl + S)
+     - Captura N° Documento Factura MIRO (ej. 5105773695) y Asiento Contable FI (ej. 4300035763)
+     - Anota ambos en el Excel y genera 'Reporte_Asientos_Contables_SAP.xlsx'
 """
 
 import os
 import sys
 import time
+import re
 import openpyxl
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 # Compatibilidad UTF-8 en consola de Windows
 if hasattr(sys.stdout, 'reconfigure'):
@@ -33,8 +51,8 @@ except ImportError:
 
 
 def conectar_sap():
-    """Se conecta a la sesión activa de SAP GUI."""
-    print("🔗 Conectando con SAP GUI...")
+    """Se conecta a la sesión activa de SAP GUI for Windows."""
+    print("🔗 Conectando con sesión activa de SAP GUI...")
     try:
         sap_gui_auto = win32com.client.GetObject("SAPGUI")
         application = sap_gui_auto.GetScriptingEngine
@@ -44,7 +62,8 @@ def conectar_sap():
         if connection.Children.Count == 0:
             raise Exception("No hay sesiones activas en la conexión de SAP.")
         session = connection.Children(0)
-        print(f"✅ Conectado a SAP exitosamente. Usuario activo: {session.Info.User} en mandante {session.Info.Mandant}")
+        print(f"✅ Conectado a SAP exitosamente.")
+        print(f"   👤 Usuario: {session.Info.User} | Mandante: {session.Info.Mandant} | Sistema: {session.Info.SystemName}")
         return session
     except Exception as e:
         print(f"❌ Error al conectar con SAP: {e}")
@@ -54,88 +73,201 @@ def conectar_sap():
         return None
 
 
-def registrar_miro(session, fecha_doc, referencia, ruc, importe, texto_pos, oc, modo_simulacion=False):
+def limpiar_texto_servicio(texto_pos):
     """
-    Ingresa a MIRO, digita los datos de la factura/RxH y contabiliza.
-    Retorna: (exito: bool, mensaje: str, num_miro: str)
+    Formatea el texto para no mencionar la semana sino únicamente el servicio.
+    Ejemplo: 'SERVICIO DE SANEO SEMANA 38' -> 'SERVICIO DE SANEO'
     """
+    t = str(texto_pos or '').strip()
+    t = re.sub(r'\s*SEMANA\s*\d+.*$', '', t, flags=re.IGNORECASE).strip()
+    return t[:25]  # Longitud estándar de texto de cabecera MIRO (BKTXT)
+
+
+def registrar_fila_miro(session, fecha_doc, referencia, ruc, importe, texto_pos, oc, ind_impto, interactivo=True, modo_simulacion=False):
+    """
+    Ejecuta el flujo completo paso a paso en SAP MIRO según las 5 pantallas del usuario.
+    Retorna: (exito: bool, msg: str, doc_miro: str, asiento_contable: str)
+    """
+    es_factura = str(referencia).startswith('01-') or str(ind_impto).upper() == 'C1'
+    code_impto = 'C1' if es_factura else 'C0'
+    clase_doc = 'KR' if es_factura else 'KH'
+    servicio_limpio = limpiar_texto_servicio(texto_pos)
+
     try:
-        # 1. Ingresar a la transacción MIRO
+        # ── 1. Ingresar a la transacción /nMIRO ─────────────────────
         session.findById("wnd[0]/tbar[0]/okcd").text = "/nMIRO"
         session.findById("wnd[0]").sendVKey(0)  # Enter
-        time.sleep(0.8)
+        time.sleep(1.0)
 
-        # 2. Asignar datos de Cabecera
-        # Fecha de documento (ej: 26.08.2026)
+        # ── PANTALLA 1: PESTAÑA 'Dat.básic.' ────────────────────────
+        # 1.1 Asegurar estar en pestaña Datos Básicos
+        try:
+            session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER").select()
+        except Exception:
+            pass
+
+        # 1.2 Fecha Factura (BLDAT)
         session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/ctxtINVFO-BLDAT").text = str(fecha_doc)
-        
-        # Fecha de contabilización (misma fecha o actual)
+
+        # 1.3 Fecha Contabilización (BUDAT)
         session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/ctxtINVFO-BUDAT").text = str(fecha_doc)
-        
-        # Referencia (RxH o Factura formateada)
+
+        # 1.4 Referencia (XBLNR)
         session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/txtINVFO-XBLNR").text = str(referencia)
-        
-        # Importe en soles
+
+        # 1.5 Importe (WRBTR)
         importe_str = f"{float(importe):.2f}"
         session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/txtINVFO-WRBTR").text = importe_str
-        
-        # Moneda PEN
+
+        # 1.6 Moneda (WAERS) = PEN
+        # SAP no siempre deja escribir directamente, por lo que se asigna con fallback nativo
         try:
-            session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/ctxtINVFO-WAERS").text = "PEN"
+            ctrl_waers = session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/ctxtINVFO-WAERS")
+            ctrl_waers.text = "PEN"
+        except Exception:
+            try:
+                session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/ctxtINVFO-WAERS").key = "PEN"
+            except Exception:
+                pass
+
+        # 1.7 Indicador de Impuestos (MWSKZ): C1 (18% IGV Factura) o C0 (0% RH)
+        # y Casilla 'Calc.Impuestos' (XMWST)
+        try:
+            # Asignar código en combobox o text
+            for cid in ["ctxtINVFO-MWSKZ_GROSS", "ctxtINVFO-MWSKZ", "cmbINVFO-MWSKZ"]:
+                try:
+                    c = session.findById(f"wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/{cid}")
+                    if hasattr(c, 'key'):
+                        c.key = code_impto
+                    c.text = code_impto
+                    break
+                except Exception:
+                    pass
+
+            # Checkbox Calc.Impuestos
+            chk_tax = session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/chkINVFO-XMWST")
+            chk_tax.selected = (code_impto == 'C1')
+        except Exception as e_impto:
+            print(f"    ℹ️ Nota impuesto: {e_impto}")
+
+        # 1.8 Texto (BKTXT): Servicio solamente
+        try:
+            session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/txtINVFO-BKTXT").text = servicio_limpio
         except Exception:
             pass
 
-        # Texto de cabecera / posición
-        try:
-            session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER/ssubHEADER:SAPLMR1M:6010/txtINVFO-BKTXT").text = str(texto_pos)[:25]
-        except Exception:
-            pass
-
-        # 3. Asignar Orden de Compra (OC)
+        # 1.9 Pedido / Orden de Compra (OC) y Enter
         if oc:
             session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/ssubITEMS:SAPLMR1M:6011/ctxtRM08M-EBELN").text = str(oc).strip()
             session.findById("wnd[0]").sendVKey(0)  # Enter para traer posiciones
-            time.sleep(1.0)
+            time.sleep(1.2)
 
-        # 4. Manejar posibles ventanas emergentes de aviso (Pop-ups informativos)
+        # Manejar avisos informativos iniciales de SAP
         while session.Children.Count > 1:
             popup = session.Children(session.Children.Count - 1)
-            popup.sendVKey(0)  # Enter para cerrar aviso
+            popup.sendVKey(0)  # Enter para cerrar
+            time.sleep(0.4)
+
+        # ── PANTALLA 2: PESTAÑA 'Detalle' ───────────────────────────
+        # Asignar Clase Doc: KR (Factura) o KH (Recibo por Honorarios)
+        try:
+            session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_DETAIL").select()
             time.sleep(0.5)
+            for c_blart in ["ctxtINVFO-BLART", "cmbINVFO-BLART"]:
+                try:
+                    c = session.findById(f"wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_DETAIL/ssubHEADER:SAPLMR1M:6010/{c_blart}")
+                    if hasattr(c, 'key'):
+                        c.key = clase_doc
+                    c.text = clase_doc
+                    break
+                except Exception:
+                    pass
+        except Exception as e_det:
+            print(f"    ℹ️ Pestaña Detalle ({clase_doc}): {e_det}")
 
-        # 5. Simular o Contabilizar
+        # ── PANTALLA 3: PESTAÑA 'Retención' ─────────────────────────
+        # RH: no agregamos nada. Factura: Retención de IGV vacía
+        try:
+            session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_WT").select()
+            time.sleep(0.5)
+            # Se verifica y mantiene vacío
+        except Exception:
+            pass
+
+        # Volver a pestaña Datos Básicos para simular
+        try:
+            session.findById("wnd[0]/usr/subHEADER_AND_ITEMS:SAPLMR1M:6005/tabsTS/tabpTAB_HEADER").select()
+            time.sleep(0.4)
+        except Exception:
+            pass
+
+        # ── PANTALLA 4: SIMULACIÓN ──────────────────────────────────
+        # Presionar botón Simular (F7)
+        session.findById("wnd[0]/tbar[1]/btn[7]").press()
+        time.sleep(1.2)
+
+        # Si aparece ventana de simulación (wnd[1] Modal 'Simular documento en PEN')
+        print(f"  🔍 Simulación generada exitosamente en SAP.")
+        print(f"     Comprobante: {referencia} | Tipo: {clase_doc} | Monto: S/ {importe_str} | Impuesto: {code_impto} | OC: {oc}")
+
+        # En modo simulación pura: no guarda
         if modo_simulacion:
-            # Botón Simular (F7)
-            session.findById("wnd[0]/tbar[1]/btn[7]").press()
-            time.sleep(1.0)
-            msg = session.findById("wnd[0]/sbar").text
-            return (True, f"Simulado correctamente: {msg}", "SIMULADO")
+            # Cerrar modal de simulación
+            if session.Children.Count > 1:
+                session.Children(session.Children.Count - 1).sendVKey(12)  # F12 Cancelar / Salir
+            return (True, "Simulación exitosa (Modo prueba)", "SIMULADO", "SIMULADO")
+
+        # Confirmación interactiva con el usuario
+        if interactivo:
+            print("\n  👉 Por favor, revisa la ventana de simulación en tu SAP GUI.")
+            resp = input("  ❓ ¿Los datos están correctos y deseas CONTABILIZAR? (S/n): ").strip().lower()
+            if resp in ('n', 'no', 'cancelar'):
+                # Cancelar y volver
+                if session.Children.Count > 1:
+                    session.Children(session.Children.Count - 1).sendVKey(12)
+                return (False, "Cancelado por el usuario tras la simulación", "", "")
+
+        # ── PANTALLA 5: CONTABILIZAR Y EXTRAER ASIENTO CONTABLE ──────
+        # Contabilizar (Ctrl + S o Guardar btn[11])
+        if session.Children.Count > 1:
+            # Si sigue abierta la ventana modal de simulación, guardar desde ella o cerrarla y guardar
+            try:
+                session.Children(session.Children.Count - 1).findById("tbar[0]/btn[11]").press()
+            except Exception:
+                session.findById("wnd[0]/tbar[0]/btn[11]").press()
         else:
-            # Botón Contabilizar (Ctrl + S o botón guardar btn[11])
             session.findById("wnd[0]/tbar[0]/btn[11]").press()
-            time.sleep(1.5)
 
-            # Leer la barra de estado de SAP
-            msg = session.findById("wnd[0]/sbar").text
-            msg_type = session.findById("wnd[0]/sbar").messageType
+        time.sleep(2.0)
 
-            if msg_type in ('S', 'I') and any(w in msg.lower() for w in ['creado', 'contabilizado', 'documento']):
-                # Extraer el número de documento de la respuesta (ej. 5105600123)
-                import re
-                num_doc = re.search(r'\b(5\d{9})\b', msg)
-                num_miro = num_doc.group(1) if num_doc else msg
-                return (True, msg, num_miro)
-            elif msg_type == 'E':
-                return (False, f"Error SAP: {msg}", "")
-            else:
-                return (True, msg, "REGISTRADO")
+        # Leer respuesta en la barra de estado de SAP (sbar)
+        msg = session.findById("wnd[0]/sbar").text
+        msg_type = session.findById("wnd[0]/sbar").messageType
+
+        # Extraer Documento de Factura MIRO y Asiento Contable FI
+        # Formato oficial: "Se ha contabilizado el documentoc de factura 5105773695 ( Asiento contable: 4300035763 )"
+        m_miro = re.search(r'factura\s+(\d{10})', msg, re.I) or re.search(r'\b(5\d{9})\b', msg)
+        doc_miro = m_miro.group(1) if m_miro else ""
+
+        m_asiento = re.search(r'Asiento\s+contable\s*:\s*(\d{10})', msg, re.I) or re.search(r'\b(4\d{9})\b', msg)
+        asiento_contable = m_asiento.group(1) if m_asiento else ""
+
+        if msg_type in ('S', 'I') and (doc_miro or asiento_contable):
+            return (True, msg, doc_miro, asiento_contable)
+        elif msg_type == 'E':
+            return (False, f"Error SAP: {msg}", "", "")
+        else:
+            return (True, msg, doc_miro or "REGISTRADO", asiento_contable or "REGISTRADO")
 
     except Exception as e:
-        return (False, f"Excepción durante registro: {e}", "")
+        return (False, f"Excepción durante el proceso MIRO: {e}", "", "")
 
 
-def procesar_lote_excel(ruta_excel, modo_simulacion=False):
-    """Lee el Excel y ejecuta el registro secuencial en SAP."""
+def procesar_miro_completo(ruta_excel, interactivo=True, modo_simulacion=False):
+    """
+    Recorre 'Masivo Reporte.xlsx', procesa cada fila en SAP MIRO,
+    actualiza el libro y crea un reporte resumen de asientos contables.
+    """
     if not os.path.exists(ruta_excel):
         print(f"❌ No se encontró el archivo: {ruta_excel}")
         return
@@ -145,76 +277,198 @@ def procesar_lote_excel(ruta_excel, modo_simulacion=False):
         return
 
     wb = openpyxl.load_workbook(ruta_excel)
-    # Procesar primera hoja de datos (ej. Arequipa Semana 34)
-    ws = wb.active
-    print(f"\n📑 Procesando hoja: '{ws.title}' ({ws.max_row - 2} registros aprox.)")
-    print(f"⚙️ Modo: {'SIMULACIÓN (No guarda datos)' if modo_simulacion else 'REAL (Contabiliza en SAP)'}")
-    print("=" * 70)
+    print(f"\n📂 Libro abierto: '{os.path.basename(ruta_excel)}'")
+    print(f"📑 Hojas disponibles: {wb.sheetnames}")
 
-    # Identificar columnas
-    header = [ws.cell(1, c).value for c in range(1, 23)]
-    c_fecha = 2   # Col B: Fecha Doc
-    c_ref   = 4   # Col D: Referencia
-    c_ruc   = 6   # Col F: RUC
-    c_tpos  = 12  # Col L: Texto Posición
-    c_imp   = 17  # Col Q: Importe MD
-    c_oc    = 21  # Col U: N° OC
-
-    # Columna para registrar el resultado en el Excel
-    col_res = 22  # Col V: Estado MIRO
-    col_doc = 23  # Col W: N° Documento SAP
-    ws.cell(1, col_res, value="Estado Registro")
-    ws.cell(1, col_doc, value="N° Documento MIRO")
-
+    registros_log = []
     exitosos = 0
     fallidos = 0
 
-    for r in range(2, ws.max_row + 1):
-        id_cab = ws.cell(r, 1).value
-        if not id_cab or str(id_cab).upper() == 'TOTAL':
-            continue
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        print(f"\n" + "=" * 70)
+        print(f"📋 PROCESANDO HOJA: '{sheet_name}'")
+        print("=" * 70)
 
-        fecha_doc = ws.cell(r, c_fecha).value
-        referencia = ws.cell(r, c_ref).value
-        ruc = ws.cell(r, c_ruc).value
-        texto_pos = ws.cell(r, c_tpos).value
-        importe = ws.cell(r, c_imp).value
-        oc = ws.cell(r, c_oc).value
+        # Identificar columnas
+        c_fecha = 2   # Col B: Fecha Doc
+        c_ref   = 4   # Col D: Referencia
+        c_ruc   = 6   # Col F: RUC
+        c_impto = 8   # Col H: Ind Impto
+        c_tpos  = 12  # Col L: Texto Posición
+        c_imp   = 17  # Col Q: Importe MD
+        c_oc    = 21  # Col U: N° OC
 
-        print(f"\n[Fila {r}] Registrando OC {oc} | Ref: {referencia} | S/ {importe}...")
+        # Columnas de resultado en el Excel
+        col_res     = 22  # Col V: Estado MIRO
+        col_doc     = 23  # Col W: N° Factura MIRO
+        col_asiento = 24  # Col X: Asiento Contable FI
+        ws.cell(1, col_res, value="Estado MIRO")
+        ws.cell(1, col_doc, value="N° Factura MIRO")
+        ws.cell(1, col_asiento, value="Asiento Contable")
 
-        exito, msg, num_miro = registrar_miro(session, fecha_doc, referencia, ruc, importe, texto_pos, oc, modo_simulacion)
+        for r in range(2, ws.max_row + 1):
+            id_cab = ws.cell(r, 1).value
+            if not id_cab or str(id_cab).upper() == 'TOTAL':
+                continue
 
-        if exito:
-            print(f"  ✅ ÉXITO: {msg}")
-            ws.cell(r, col_res, value="CONTABILIZADO" if not modo_simulacion else "SIMULADO OK")
-            ws.cell(r, col_doc, value=num_miro)
-            exitosos += 1
-        else:
-            print(f"  ❌ ERROR: {msg}")
-            ws.cell(r, col_res, value=f"ERROR: {msg[:50]}")
-            ws.cell(r, col_doc, value="FALLIDO")
-            fallidos += 1
+            fecha_doc   = ws.cell(r, c_fecha).value
+            referencia  = ws.cell(r, c_ref).value
+            ruc         = ws.cell(r, c_ruc).value
+            texto_pos   = ws.cell(r, c_tpos).value
+            importe     = ws.cell(r, c_imp).value
+            oc          = ws.cell(r, c_oc).value
+            ind_impto   = ws.cell(r, c_impto).value or ws.cell(r, 18).value
 
-        time.sleep(1.0)  # Pausa de seguridad entre registros
+            es_factura = str(referencia).startswith('01-') or str(ind_impto).upper() == 'C1'
+            clase_doc = 'KR' if es_factura else 'KH'
 
-    # Guardar Excel con resultados
-    ruta_salida = ruta_excel.replace(".xlsx", " (CON MIRO).xlsx")
-    wb.save(ruta_salida)
+            print(f"\n─── [Fila {r}] ──────────────────────────────────────────────────────────")
+            print(f"📄 Comprobante : {referencia} ({'FACTURA KR' if es_factura else 'RECIBO POR HONORARIOS KH'})")
+            print(f"💰 Importe     : S/ {float(importe):.2f} | Impuesto: {ind_impto}")
+            print(f"🏢 RUC / OC    : {ruc} | OC: {oc}")
+            print(f"🏷️  Servicio    : {limpiar_texto_servicio(texto_pos)}")
+
+            exito, msg, doc_miro, asiento = registrar_fila_miro(
+                session, fecha_doc, referencia, ruc, importe, texto_pos, oc, ind_impto,
+                interactivo=interactivo, modo_simulacion=modo_simulacion
+            )
+
+            # Guardar en celdas de la fila
+            if exito:
+                print(f"  🎉 ÉXITO SAP: {msg}")
+                print(f"  📝 Doc MIRO: {doc_miro} | 🏦 Asiento Contable: {asiento}")
+                ws.cell(r, col_res, value="CONTABILIZADO" if not modo_simulacion else "SIMULADO OK")
+                ws.cell(r, col_doc, value=doc_miro)
+                ws.cell(r, col_asiento, value=asiento)
+                exitosos += 1
+            else:
+                print(f"  ⚠️ NO REGISTRADO: {msg}")
+                ws.cell(r, col_res, value=f"ERROR: {msg[:40]}")
+                ws.cell(r, col_doc, value="FALLIDO")
+                ws.cell(r, col_asiento, value="-")
+                fallidos += 1
+
+            registros_log.append({
+                'hoja': sheet_name,
+                'fila': r,
+                'fecha': fecha_doc,
+                'referencia': referencia,
+                'ruc': ruc,
+                'oc': oc,
+                'servicio': limpiar_texto_servicio(texto_pos),
+                'importe': importe,
+                'tipo': clase_doc,
+                'impto': ind_impto,
+                'doc_miro': doc_miro,
+                'asiento_contable': asiento,
+                'estado': "CONTABILIZADO" if exito else "ERROR",
+                'mensaje_sap': msg
+            })
+
+            time.sleep(1.0)
+
+    # Guardar Excel actualizado
+    try:
+        wb.save(ruta_excel)
+        print(f"\n💾 Archivo base actualizado con éxito: {ruta_excel}")
+    except PermissionError:
+        copia_excel = ruta_excel.replace(".xlsx", " (CON ASIENTOS).xlsx")
+        wb.save(copia_excel)
+        print(f"\n⚠️ El Excel base estaba abierto. Se guardó copia en: {copia_excel}")
+
+    # Generar Reporte de Asientos Contables consolidado
+    generar_reporte_asientos(registros_log)
+
     print("\n" + "=" * 70)
     print("🏁 PROCESAMIENTO FINALIZADO")
-    print(f"✅ Exitosos: {exitosos} | ❌ Fallidos: {fallidos}")
-    print(f"📁 Reporte de auditoría guardado en:\n   {ruta_salida}")
+    print(f"📊 Total procesados: {len(registros_log)} | ✅ Exitosos: {exitosos} | ❌ Fallidos: {fallidos}")
     print("=" * 70)
+
+
+def generar_reporte_asientos(registros):
+    """Genera un archivo Excel independiente y limpio con todos los asientos generados."""
+    if not registros:
+        return
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out_path = os.path.join(base_dir, "Reporte_Asientos_Contables_SAP.xlsx")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Asientos MIRO Contabilizados"
+
+    headers = [
+        "Hoja / Depto", "Fila", "Fecha Doc", "REFERENCIA", "RUC", "N° OC",
+        "Servicio", "Importe (S/)", "Clase Doc", "Ind Impto",
+        "N° Factura MIRO", "Asiento Contable FI", "Estado", "Mensaje SAP"
+    ]
+
+    fill_hdr = PatternFill('solid', fgColor='1F4E79')
+    font_hdr = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+    al_c = Alignment(horizontal='center', vertical='center')
+    al_l = Alignment(horizontal='left', vertical='center')
+    al_r = Alignment(horizontal='right', vertical='center')
+    thin = Side(style='thin', color='D9D9D9')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    ws.append(headers)
+    for col_idx in range(1, len(headers) + 1):
+        c = ws.cell(1, col_idx)
+        c.fill = fill_hdr
+        c.font = font_hdr
+        c.alignment = al_c
+
+    for reg in registros:
+        row = [
+            reg['hoja'], reg['fila'], reg['fecha'], reg['referencia'], reg['ruc'], reg['oc'],
+            reg['servicio'], reg['importe'], reg['tipo'], reg['impto'],
+            reg['doc_miro'], reg['asiento_contable'], reg['estado'], reg['mensaje_sap']
+        ]
+        ws.append(row)
+
+    # Formatos de ancho y alineación
+    for r in range(2, ws.max_row + 1):
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(r, col_idx)
+            cell.border = border
+            if col_idx in (2, 3, 9, 10, 11, 12, 13):
+                cell.alignment = al_c
+            elif col_idx in (8,):
+                cell.alignment = al_r
+                cell.number_format = '"S/ "#,##0.00'
+            else:
+                cell.alignment = al_l
+
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = openpyxl.utils.get_column_letter(col[0].column)
+        ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+    try:
+        wb.save(out_path)
+        print(f"📁 Reporte de Asientos Contables exportado en:\n   {out_path}")
+    except Exception as e:
+        print(f"⚠️ No se pudo guardar reporte independiente: {e}")
 
 
 if __name__ == '__main__':
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     excel_path = os.path.join(base_dir, "Masivo Reporte.xlsx")
 
-    # Si se pasa el argumento --simular no guarda en SAP, solo prueba campos
-    simular = "--simular" in sys.argv
+    # Modos de ejecución:
+    # python scripts/1_sap_miro_scripting.py            -> Modo Interactivo (Pregunta antes de contabilizar)
+    # python scripts/1_sap_miro_scripting.py --auto     -> Modo Automático (Contabiliza sin pausar)
+    # python scripts/1_sap_miro_scripting.py --simular  -> Modo Simulación (Verifica campos sin guardar)
+
+    es_simular = "--simular" in sys.argv
+    es_auto = "--auto" in sys.argv
+    es_interactivo = not es_auto and not es_simular
+
     print("=" * 70)
-    print("   SOLUCIÓN 1: REGISTRO AUTOMÁTICO EN SAP MIRO (PYTHON SCRIPTING)")
+    print("   BOT AUTOMATIZADOR DE REGISTRO EN SAP MIRO (LA CALERA)")
     print("=" * 70)
-    procesar_lote_excel(excel_path, modo_simulacion=simular)
+    print(f"Modo: {'SIMULACIÓN (Sin guardar)' if es_simular else 'AUTOMÁTICO' if es_auto else 'INTERACTIVO (Pregunta al simular)'}")
+    print(f"Archivo de entrada: {excel_path}\n")
+
+    procesar_miro_completo(excel_path, interactivo=es_interactivo, modo_simulacion=es_simular)

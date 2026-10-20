@@ -67,9 +67,9 @@ def enfocar_sap():
         return True
 
 
-def digitar_factura_miro(fecha_doc, referencia, ruc, importe, oc):
+def digitar_factura_miro(fecha_doc, referencia, ruc, importe, oc, ind_impto='C0'):
     """Ejecuta la secuencia de teclas para una factura en MIRO."""
-    print(f"  ⌨️  Digitando: Fecha={fecha_doc} | Ref={referencia} | S/ {importe} | OC={oc}")
+    print(f"  ⌨️  Digitando: Fecha={fecha_doc} | Ref={referencia} | S/ {importe} | Impuesto={ind_impto} | OC={oc}")
 
     # 1. Abrir MIRO desde la barra de comandos
     pyautogui.hotkey('ctrl', '/')  # Atajo SAP para ir a la barra de comandos
@@ -125,12 +125,17 @@ def procesar_rpa(ruta_excel):
     for r in range(2, ws.max_row + 1):
         id_cab = ws.cell(r, 1).value
         if id_cab and str(id_cab).upper() != 'TOTAL':
+            ref_val = ws.cell(r, 4).value
+            impto_val = ws.cell(r, 8).value or ws.cell(r, 18).value
+            if not impto_val:
+                impto_val = 'C1' if str(ref_val or '').startswith('01-') else 'C0'
             rows.append({
                 'r': r,
                 'fecha': ws.cell(r, 2).value,
-                'ref': ws.cell(r, 4).value,
+                'ref': ref_val,
                 'ruc': ws.cell(r, 6).value,
                 'imp': ws.cell(r, 17).value,
+                'impto': impto_val,
                 'oc': ws.cell(r, 21).value,
             })
 
@@ -153,7 +158,7 @@ def procesar_rpa(ruta_excel):
 
     for idx, item in enumerate(rows, start=1):
         print(f"[{idx}/{len(rows)}] Procesando Fila {item['r']}...")
-        digitar_factura_miro(item['fecha'], item['ref'], item['ruc'], item['imp'], item['oc'])
+        digitar_factura_miro(item['fecha'], item['ref'], item['ruc'], item['imp'], item['oc'], item['impto'])
         time.sleep(1.0)
 
     print("\n" + "=" * 70)

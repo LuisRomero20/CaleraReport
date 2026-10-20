@@ -22,3 +22,18 @@ desktop.ini
 # IDEs
 .vscode/
 .idea/
+
+# Expedientes y salidas con información de proveedores
+expedientes/
+Masivo Reporte*.xlsx
+Control_Ordenes_Servicio_Semana_*_Generado.xlsx
+Reporte_Asientos_Contables_SAP.xlsx
+
+# Bitácoras locales del renombrador MIRO
+.calera_renombrado/
+historial_renombrado*.json
+
+# Salidas de pruebas y reportes temporales
+outputs/
+test-results/
+*.log

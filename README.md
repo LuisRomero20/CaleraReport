@@ -1,129 +1,194 @@
-# Consolidador Masivo de Reportes de Pago a Proveedores (SAP) 📊
+# CALERA — Control de órdenes de servicio y automatización SAP MIRO
 
-Herramienta diseñada para el procesamiento, validación y consolidación masiva de expedientes de pago a proveedores por departamentos (RxH, Facturas, OCs y Consolidados), generando el archivo oficial **`Masivo Reporte.xlsx`** listo para carga y contabilización en **SAP**.
+CALERA consolida expedientes de servicios por semana y provincia. Su entregable
+principal es un maestro de control Excel compatible con la hoja `BD` del modelo
+operativo. El reporte histórico `Masivo Reporte.xlsx` continúa disponible para
+los bots de SAP MIRO.
 
----
+Todo el procesamiento documental ocurre en el navegador o en Python local. La
+interfaz incluye su propia copia de la dependencia XLSX y no envía los PDF a
+servicios externos.
 
-## 🚀 Características Principales
+## Flujo de trabajo
 
-- **🌐 Herramienta Web 100% Local (Sin Instalación ni Servidores)**:
-  - Funciona directamente abriendo `index.html` o `Masivo Reporte Tool.html` en Chrome, Edge o cualquier navegador moderno.
-  - Diseñada especialmente para entornos corporativos con restricciones de instalación de software o permisos de administrador.
-  - Procesamiento 100% en el cliente: los datos nunca salen de la computadora.
+1. Cargar la carpeta raíz con los expedientes PDF. El control Excel es opcional
+   y se usa únicamente como referencia de estructura del archivo de salida.
+2. La interfaz crea un registro por cada HES y completa sus campos con el HES,
+   la OC, el comprobante y la SOLPED relacionados por provincia y documento.
+3. Descargar el maestro generado y el masivo SAP.
+4. Completar manualmente MIRO en la columna U y, si corresponde, observaciones
+   en las columnas T y V.
+5. Ejecutar la herramienta local de renombrado. La herramienta muestra una
+   vista previa y solicita confirmación antes de cambiar nombres.
 
-- **📁 Soporte Multi-Departamento en Lote**:
-  - Permite arrastrar una carpeta raíz que contenga múltiples subcarpetas de departamentos (`1110 AREQUIPA`, `1120 TRUJILLO`, etc.).
-  - Genera automáticamente un único libro Excel con **una pestaña independiente por cada departamento** (ej. `Arequipa Semana 34`).
+## Interfaz web
 
-- **📄 Extracción Automática de Fechas desde PDFs de OC**:
-  - Escanea internamente cada PDF de Orden de Compra (`...OC...PDF`) presente en las carpetas.
-  - Extrae de forma automática la **Fecha de Emisión** oficial (ej. `26.08.2026`) vinculándola a su respectiva OC / RxH.
-  - Manejo seguro de zonas horarias (UTC) para evitar cualquier desfase de días.
+Abre `index.html` en Chrome o Edge. También puede servirse localmente:
 
-- **🗓️ Filtrado Inteligente por Semana Reciente**:
-  - Detecta el número máximo de semana en los archivos de consolidado histórico (ej. Semana 34) y filtra automáticamente solo los registros que corresponden al período actual.
-
-- **🎨 Formato y Estructura Oficial SAP (Columnas A – U)**:
-  - **Columna L**: Texto de Posición estandarizado (ej. `SERVICIO DE LIMPIEZA SEMANA 34`, `SERVICIO DE ESTIBA SEMANA 34`).
-  - **Columna Q**: Importe en formato de moneda peruana (`S/ #,##0.00`) con resaltado contable.
-  - **Columna T**: Copia exacta y sincronizada de la columna L.
-  - **Columna U**: Número de Orden de Compra (`N° OC`) correspondiente a cada comprobante.
-  - **Fila de TOTAL**: Calculada automáticamente con fórmula dinámica `=SUM(...)`.
-
-- **✏️ Barra de Edición Rápida de Fecha**:
-  - En la vista previa web se muestra el origen de la fecha (`✅ Extraída de Orden de Compra`) y permite modificar o unificar la fecha de toda la hoja con un solo clic.
-
----
-
-## 📂 Estructura del Repositorio
-
-```text
-├── index.html                  # Aplicación Web principal (landing GitHub Pages)
-├── Masivo Reporte Tool.html    # Aplicación Web standalone (copia de trabajo directo)
-├── Masivo Reporte.xlsx         # Reporte final consolidado generado
-├── requirements.txt            # Dependencias opcionales para Python
-├── .gitignore                  # Reglas de exclusión de archivos temporales
-├── README.md                   # Documentación oficial del proyecto
-│
-├── scripts/
-│   └── procesar_masivo.py      # Motor CLI en Python para procesamiento por terminal
-│
-└── 1110 AREQUIPA/              # Carpeta de ejemplo / datos de departamento
-    ├── SEM 34 CONSOLIDADO PAGO PROV aqp.xlsx
-    ├── AREQUIPA OC 430060343 RXH E001-160 AGRIPINA VALERIANO.PDF
-    ├── ... (demás OCs, HES y Solpeds en PDF)
+```powershell
+python -m http.server 8000
 ```
 
----
+Visita `http://localhost:8000`.
 
-## 💻 Instrucciones de Uso
+La interfaz permite:
 
-### Opción 1: Interfaz Web (Recomendada para Usuarios Finales)
+- Seleccionar una carpeta raíz con subcarpetas, archivos PDF y el control Excel.
+- Agregar sedes en varias selecciones sin perder las anteriores.
+- Arrastrar directorios de forma recursiva cuando el navegador lo admite.
+- Quitar una selección o limpiar todo el estado.
+- Importar por separado un maestro editado para recuperar MIRO y observaciones.
+- Leer automáticamente la carpeta y procesar todas las semanas, sin selector de
+  modo ni de semana.
+- Filtrar la vista previa por provincia, tipo, estatus o identificador.
+- Descargar el nuevo maestro y el antiguo masivo SAP como entregables distintos.
+- El Excel de control no filtra, valida ni aporta filas al nuevo maestro. Los
+  datos se extraen de los PDF; un campo que no aparezca en ellos queda vacío y
+  se registra como incidencia.
 
-1. Haz doble clic en [`index.html`](index.html) o [`Masivo Reporte Tool.html`](Masivo%20Reporte%20Tool.html) para abrirlo en tu navegador (Chrome / Edge).
-2. Haz clic en **"Seleccionar carpeta de departamentos"** o arrastra la carpeta que contiene los departamentos (ej. `1110 AREQUIPA`).
-3. El sistema procesará en segundos cada departamento:
-   - Detecta el archivo de consolidado.
-   - Lee las Órdenes de Compra en PDF y extrae sus fechas de emisión.
-   - Construye la tabla con las columnas A–U.
-4. Revisa la **Vista Previa** interactiva (pestañas por departamento, fecha detectada, importes en S/ y OCs).
-5. Haz clic en **📥 Descargar Masivo Reporte.xlsx**.
+Con la carpeta de ejemplo actual se generan 24 registros: 14 de Arequipa, 3 de
+Chimbote, 4 de Chiclayo y 3 de ICA.
 
-### Opción 2: Script en Python (Automatización por Terminal)
+## Nuevo maestro A–W
 
-Si prefieres ejecutar el proceso por línea de comandos:
+El libro generado contiene:
 
-```bash
-# 1. Instalar dependencias (solo primera vez)
+- `BD`: las 23 columnas de control, de `ID` a `ESTATUS`.
+- `RESUMEN`: totales generales y por provincia, tipos documentales, importes y
+  estados.
+- `INCIDENCIAS`: semana, provincia, documento, fuente, campo, gravedad y motivo.
+
+Las fechas son fechas reales de Excel, los importes son numéricos y RUC/SOLPED/
+OC/HES/MIRO se tratan como identificadores para evitar pérdida de dígitos.
+
+La columna U del maestro es `MIRO`. Se deja vacía en una generación nueva. No se
+copian los MIRO históricos del archivo de referencia. La columna W usa una
+fórmula que devuelve:
+
+- `OBSERVADO` si falta un campo esencial o existe una incidencia bloqueante.
+- `PENDIENTE MIRO` si el expediente está validado y U está vacía.
+- `CERRADO` si existe un MIRO válido y no hay bloqueos.
+
+La columna U del antiguo `Masivo Reporte.xlsx` continúa siendo `N° OC`. Los dos
+formatos no son intercambiables.
+
+`N° Doc` se exporta como referencia SAP: `01-0E001-0000622` para facturas y
+`02-0E001-0000047` para recibos por honorarios. Al reimportar el maestro, el
+número se normaliza para mantener las coincidencias documentales. Las columnas
+Q (`¿Solped Liberada`) y S (`¿OS Liberada?`) conservan las fórmulas del control:
+Q convierte `Lib Solped = 2` en 2 y los demás valores en 0; S convierte `G` en
+2, `B` en 0 y los demás valores en 1.
+
+## Origen y validación de campos
+
+| Campo | Origen y validación |
+|---|---|
+| FECHA, SEM, SOLICITANTE, RUC, proveedor, tipo y documento | PDF del comprobante, HES y OC relacionados. Si la semana no está escrita en los PDF, se calcula desde la fecha y se informa como advertencia. |
+| VALORIZADO | Importe Total de la factura o Total Neto Recibido/Total por Honorarios del RXH. Para un RXH sin comprobante legible puede usarse el valor de su HES. |
+| Provincia | Carpeta `CODIGO_PROVINCIA`. |
+| MOTIVO | Descripción del servicio contenida en la HES. |
+| SOLPED | Nombre del PDF SOLPED relacionado con el documento. Si no existe, queda vacío; nunca se copia del control ni se inventa. |
+| N° OC | Número del PDF de OC y relación indicada en la HES. |
+| N° HES | Una fila nueva por cada PDF HES. |
+| Liberaciones | Quedan vacías si los PDF no contienen esos indicadores. |
+| MIRO y observaciones manuales | Solo un maestro editado que el usuario importa expresamente. |
+
+El masivo SAP utiliza el mismo `VALORIZADO` leído desde el PDF y no aplica un
+incremento automático de IGV.
+
+## Generación por Python
+
+Instala dependencias:
+
+```powershell
 pip install -r scripts/requirements.txt
+```
 
-# 2. Ejecutar el procesador
+Generar Semana 41 con expedientes físicos:
+
+```powershell
+python scripts/control_ordenes.py expedientes/Semana_41 --modo expedientes --semana 41
+```
+
+Generar el maestro completo:
+
+```powershell
+python scripts/control_ordenes.py expedientes/Semana_41 `
+  --modo completo `
+  --semana 41 `
+  --maestro expedientes/Semana_41/Control_Ordenes_Servicio_Semana_41.xlsx
+```
+
+Recuperar datos manuales de una versión anterior:
+
+```powershell
+python scripts/control_ordenes.py expedientes/Semana_41 `
+  --semana 41 `
+  --maestro-editado "C:\ruta\Control_Ordenes_Servicio_Semana_41_Generado.xlsx"
+```
+
+## Renombrado de PDF por MIRO
+
+Ejecuta:
+
+```powershell
+python scripts/renombrar_documentos_miro.py
+```
+
+La ventana incluye los botones `Seleccionar Excel`, `Seleccionar expedientes`,
+`Analizar MIRO`, `Vista previa`, `Renombrar documentos` y `Deshacer último
+renombrado`.
+
+El alcance predeterminado renombra solo PDF de HES:
+
+```text
+HES 1000094356 - RXH E001-41 - DIEGO MIRES.pdf
+4300038610 - HES 1000094356 - RXH E001-41 - DIEGO MIRES.pdf
+```
+
+El alcance opcional incluye comprobante, OC y SOLPED cuando las relaciones son
+inequívocas. La herramienta bloquea MIRO inválidos, colisiones, enlaces
+simbólicos, archivos con un prefijo diferente y asociaciones ambiguas. Guarda
+el historial en `.calera_renombrado/historial_renombrado.json`, dentro de la
+carpeta autorizada, y comprueba el hash antes de revertir.
+
+## Reporte SAP existente
+
+La web todavía descarga `Masivo Reporte.xlsx`. También puede generarse con:
+
+```powershell
 python scripts/procesar_masivo.py
 ```
 
-El script escaneará automáticamente las carpetas del proyecto y generará el archivo `Masivo Reporte.xlsx` con todas las pestañas y estilos listos.
+Los bots existentes permanecen separados:
 
----
+```powershell
+python scripts/1_sap_miro_scripting.py --simular
+python scripts/1_sap_miro_scripting.py
+python scripts/1_sap_miro_scripting.py --auto
+```
 
-## 📋 Mapeo de Columnas Oficiales (SAP)
+El modo `--simular` es el apropiado para comprobar una sesión SAP sin guardar.
 
-| Columna | Encabezado | Origen / Regla |
-|:---:|:---|:---|
-| **A** | `ID CABC(1)` | Contador correlativo secuencial (1, 2, 3...) |
-| **B** | `Fecha Doc` | Fecha de emisión extraída del PDF de la OC (ej. `26.08.2026`) |
-| **C** | `Texto Cab Doc` | Vacío / Opcional según SAP |
-| **D** | `REFERENCIA` | Recibo por Honorarios formateado (`02-0E001-0000160`) |
-| **E** | `ID POSC(2)Acreedor` | Constante contable `2` |
-| **F** | `RUC` | RUC del proveedor / prestador |
-| **G** | `Cond Pago` | Condición de pago estándar `CP02` |
-| **H** | `Ind Impto` | Indicador de impuesto `C0` |
-| **I** | `Tipo Detr` | Vacío |
-| **J** | `Ind Detra` | Vacío |
-| **K** | `Asignación` | Vacío |
-| **L** | `Texto Posición` | Motivo normalizado + `SEMANA {N}` |
-| **M** | `ID POSC(2) Cta GASTO` | Constante contable `2` |
-| **N** | `Cuenta Gasto` | Vacío |
-| **O** | `DETALLE` | Vacío |
-| **P** | `Centro Costo` | Vacío |
-| **Q** | `Importe MD` | Valor monetario formateado en `S/ #,##0.00` |
-| **R** | `Ind Impto` | Indicador `C0` |
-| **S** | `Asignación` | Vacío |
-| **T** | `Texto Posición` | **Copia exacta e idéntica de la Columna L** |
-| **U** | `N° OC` | Número de Orden de Compra extraído del consolidado/PDF |
+## Pruebas
 
----
+```powershell
+python -m unittest discover -s tests -v
+```
 
-## 🛠️ Tecnologías Empleadas
+Las pruebas de renombrado crean carpetas temporales y copias de los PDF. Nunca
+modifican los expedientes originales.
 
-- **Frontend Web**: HTML5, Vanilla CSS moderno (paleta institucional dark/forest green, glassmorphism, responsive), Vanilla JavaScript (ES6+).
-- **Procesamiento de Libros Excel**: `xlsx-js-style` (generación y formateo completo de estilos XML en el navegador).
-- **Lectura Binaria de PDFs**: Parser interno de streams en JavaScript puro y `pypdf` para Python.
-- **Motor CLI**: Python 3.10+ con `openpyxl`.
+## Protección de datos y despliegue
 
----
+`.gitignore` excluye expedientes, libros generados y bitácoras. `.vercelignore`
+impide publicar `expedientes/`, `docs/`, `scripts/`, pruebas, PDF y Excel. El
+sitio desplegado necesita únicamente `index.html`, `app.js`, `Icono.png` y las
+dependencias locales de `vendor/`: XLSX, JSZip y PDF.js con su worker.
 
-## 🔒 Privacidad y Seguridad
+Si documentos reales ya se publicaron o entraron en el historial Git, primero
+revoca el despliegue afectado y coordina la limpieza del historial con el equipo.
+No se reescribe el historial ni se eliminan fuentes originales automáticamente.
 
-Esta solución está diseñada respetando los más altos estándares de privacidad:
-- **Zero-Cloud**: Ningún archivo, factura o dato personal se sube a internet.
-- Funciona 100% desconectado tras la primera carga de caché de la librería de estilos.
+Consulta `docs/Guia_Maestro_Control_y_Renombrado.md` para la arquitectura y los
+controles técnicos.
