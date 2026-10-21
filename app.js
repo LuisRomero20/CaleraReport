@@ -442,6 +442,35 @@ function finalizeRecord(record){
   }
 }
 
+const MIRO_CACHE_KEY = 'calera_miro_cache_v1';
+
+function getMiroCache(){
+  try{
+    return JSON.parse(localStorage.getItem(MIRO_CACHE_KEY) || '{}');
+  }catch(e){
+    return {};
+  }
+}
+
+function saveMiroToCache(key, miro){
+  if(!key) return;
+  try{
+    const cache = getMiroCache();
+    if(miro && /^\d{10}$/.test(miro)){
+      cache[key] = miro;
+    } else if(!miro){
+      delete cache[key];
+    }
+    localStorage.setItem(MIRO_CACHE_KEY, JSON.stringify(cache));
+  }catch(e){}
+}
+
+function clearMiroCache(){
+  try{
+    localStorage.removeItem(MIRO_CACHE_KEY);
+  }catch(e){}
+}
+
 async function parseManual(file){
   if(!file) return new Map(); const wb=await readWorkbook(file), records=parseRows(sheetRows(wb,'BD'),`${file.name}:BD`).records, grouped=new Map();
   for(const record of records){const key=groupKey(record);if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(record);}
@@ -548,7 +577,17 @@ async function processSelection(){
     for(const record of records){validatePhysical(record,pIndex,incidents);validateRequired(record,incidents);}
     const manual=await parseManual(state.previousFile);
     for(const record of records){
-      const values=manual.get(groupKey(record)); if(values){if(values.conflict)addIncident(incidents,record,'Maestro editado','MIRO',BLOCKING,'El maestro editado contiene MIRO distintos para la misma clave documental.');else if(values.miro&&!/^\d{10}$/.test(values.miro))addIncident(incidents,record,'Maestro editado','MIRO',BLOCKING,`El MIRO ${values.miro} no tiene 10 dígitos.`);else {if(values.miro)record.miro=values.miro;record.obs_miro=values.obs_miro;record._manualObservation=values.observaciones;}}
+      const values=manual.get(groupKey(record)); if(values){if(values.conflict)addIncident(incidents,record,'Maestro editado','MIRO',BLOCKING,'El maestro editado contiene MIRO distintos para la misma clave documental.');else if(values.miro&&!/^\d{10}$/.test(values.miro))addIncident(incidents,record,'Maestro editado','MIRO',BLOCKING,`El MIRO ${values.miro} no tiene 10 dígitos.`);else {if(values.miro){record.miro=values.miro;saveMiroToCache(groupKey(record),values.miro);if(record.hes)saveMiroToCache('HES:'+cleanId(record.hes),values.miro);}record.obs_miro=values.obs_miro;record._manualObservation=values.observaciones;}}
+    }
+    const cachedMiros=getMiroCache();
+    for(const record of records){
+      if(!record.miro){
+        const gk=groupKey(record), hk=record.hes?'HES:'+cleanId(record.hes):null;
+        const cached=cachedMiros[gk]||(hk?cachedMiros[hk]:null);
+        if(cached&&/^\d{10}$/.test(cached)){
+          record.miro=cached;
+        }
+      }
     }
     records=deduplicate(records,incidents);
     records.sort((a,b)=>(a._context.code||a.provincia).localeCompare(b._context.code||b.provincia)||Number(a.hes||0)-Number(b.hes||0));
@@ -565,10 +604,31 @@ function setProgress(percent,label){
 function renderStatsGrid(){
   if(!state.result)return;
   const {records,incidents}=state.result, supported=records.filter(r=>r._physicalSupported).length, provinces=[...new Set(records.map(r=>r.provincia))].sort(),sites=state.result.sites||[];
+  const totalValorizado=records.reduce((sum,r)=>sum+(Number(r.valorizado)||0),0);
+  const valorizadoFormatted='S/ '+totalValorizado.toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const matchRate=records.length?((supported/records.length)*100).toFixed(1)+'%':'0.0%';
+  const cerradosCount=records.filter(r=>r.estatus==='CERRADO').length;
+  const pendientesMiroCount=records.filter(r=>r.estatus==='PENDIENTE MIRO').length;
+  const observadosCount=records.filter(r=>r.estatus==='OBSERVADO').length;
+  const blockingCount=incidents.filter(i=>i.severity===BLOCKING).length;
+  const warnCount=incidents.filter(i=>i.severity!==BLOCKING).length;
+
   $('stats-grid').innerHTML=[
-    ['Registros generados',records.length],['Carpetas reconocidas',sites.length],['Provincias con registros',provinces.length],['Expedientes completos',supported],
-    ['HES procesadas',records.filter(r=>r.hes).length],['SOLPED extraídas',records.filter(r=>r.solped).length],['Incidencias',incidents.length],['Pendiente MIRO',records.filter(r=>!r.miro).length]
-  ].map(([label,value])=>`<div class="stat-box"><div class="stat-value">${value}</div><div class="stat-label">${label}</div></div>`).join('');
+    { label:'Tasa Conciliación', value:matchRate, cls:'kpi-accent', valCls:'kpi-blue', sub:`${supported} de ${records.length} soportados` },
+    { label:'Total Valorizado', value:valorizadoFormatted, cls:'kpi-gold', valCls: 'money', sub:'Importe consolidado' },
+    { label:'Cerrados Conforme', value:cerradosCount, cls:'', valCls:'', sub:'Listos con MIRO 10 dígitos' },
+    { label:'Pendiente MIRO', value:pendientesMiroCount, cls:'kpi-warn', valCls:'kpi-warn', sub:'Esperando registro SAP' },
+    { label:'Observados', value:observadosCount, cls:observadosCount?'kpi-alert':'', valCls:observadosCount?'kpi-red':'', sub:'Requieren subsanación' },
+    { label:'Bloqueantes / Warnings', value:`${blockingCount} / ${warnCount}`, cls:blockingCount?'kpi-alert':'', valCls:blockingCount?'kpi-red':'', sub:`${incidents.length} incidencias totales` },
+    { label:'HES Procesadas', value:records.filter(r=>r.hes).length, cls:'', valCls:'', sub:`${records.filter(r=>r.solped).length} con SOLPED vinculada` },
+    { label:'Sedes / Carpetas', value:`${provinces.length} / ${sites.length}`, cls:'', valCls:'', sub:`${state.result.files||0} archivos PDF leídos` },
+  ].map(card=>`
+    <div class="stat-box ${card.cls}">
+      <div class="stat-value ${card.valCls}">${card.value}</div>
+      <div class="stat-label">${card.label}</div>
+      <div class="stat-sub">${card.sub}</div>
+    </div>
+  `).join('');
 }
 
 function renderResults(){
@@ -610,6 +670,8 @@ function renderPreview(){
       if(!rec)return;
       const raw=event.target.value.replace(/\D/g,'').slice(0,10);
       event.target.value=raw; rec.miro=raw;
+      saveMiroToCache(groupKey(rec), raw);
+      if(rec.hes) saveMiroToCache('HES:'+cleanId(rec.hes), raw);
       if(raw)event.target.classList.add('has-value'); else event.target.classList.remove('has-value');
       finalizeRecord(rec);
       const statusTd=document.querySelector(`.td-status-${rec.id}`);
@@ -809,6 +871,8 @@ async function applyManualToCurrentResult(){
       if(values){
         if(values.miro && values.miro !== record.miro){
           record.miro = values.miro;
+          saveMiroToCache(groupKey(record), values.miro);
+          if(record.hes) saveMiroToCache('HES:'+cleanId(record.hes), values.miro);
           updatedCount++;
         }
         if(values.obs_miro) record.obs_miro = values.obs_miro;
