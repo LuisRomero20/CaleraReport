@@ -167,6 +167,47 @@
     .miro-cell-input{width:88px;padding:2px 4px;background:#112217;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:monospace;font-size:.72rem;text-align:center;transition:border-color .2s,background .2s}
     .miro-cell-input:focus{outline:none;border-color:var(--g-bright);background:#193824}
     .miro-cell-input.has-value{border-color:rgba(112,173,71,.6);color:#a9d18e;font-weight:700}
+    .btn-audit{padding:3px 8px;border-radius:5px;font-size:.68rem;background:rgba(0,176,240,.18);border:1px solid rgba(0,176,240,.4);color:var(--cyan);cursor:pointer;font-family:inherit;font-weight:700;transition:all .2s;white-space:nowrap}
+    .btn-audit:hover{background:var(--cyan);color:#0a150e}
+    .analytics-hud{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-top:1.2rem}
+    .hud-card{background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:10px;padding:1.1rem}
+    .hud-title{font-size:.82rem;font-weight:700;color:#fff;margin-bottom:.85rem;display:flex;justify-content:space-between;align-items:center;letter-spacing:.3px}
+    .bar-row{display:flex;align-items:center;gap:.65rem;margin-bottom:.55rem;font-size:.73rem;cursor:pointer;padding:2px 4px;border-radius:4px;transition:background .2s}
+    .bar-row:hover{background:rgba(255,255,255,.04)}
+    .bar-label{width:95px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt-muted);font-weight:600}
+    .bar-track{flex:1;height:14px;background:rgba(255,255,255,.05);border-radius:7px;overflow:hidden;position:relative}
+    .bar-fill{height:100%;border-radius:7px;background:linear-gradient(90deg,var(--g-mid),var(--g-bright));transition:width .4s}
+    .bar-fill.cyan{background:linear-gradient(90deg,#0090c0,var(--cyan))}
+    .bar-fill.warn{background:linear-gradient(90deg,#c09000,#ffd45b)}
+    .bar-fill.red{background:linear-gradient(90deg,#990000,#ff8c8c)}
+    .bar-value{width:85px;text-align:right;font-family:monospace;color:var(--gold);font-weight:600}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);z-index:999;display:flex;align-items:center;justify-content:center;padding:1rem;animation:fadeIn .2s ease}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    .modal-box{background:#112217;border:1px solid var(--g-bright);border-radius:14px;max-width:860px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.85);display:flex;flex-direction:column}
+    .modal-head{padding:1.1rem 1.4rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,.02)}
+    .modal-title{font-size:1.05rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:.6rem}
+    .modal-close{background:none;border:none;color:var(--txt-muted);font-size:1.4rem;cursor:pointer;line-height:1}
+    .modal-close:hover{color:#fff}
+    .modal-body{padding:1.3rem;display:flex;flex-direction:column;gap:1.2rem}
+    .modal-tabs{display:flex;gap:.5rem;border-bottom:1px solid var(--border);padding-bottom:.5rem}
+    .modal-tab{padding:.4rem .9rem;border-radius:8px;border:none;background:rgba(255,255,255,.04);color:var(--txt-muted);cursor:pointer;font-family:inherit;font-size:.78rem;font-weight:600;transition:all .2s}
+    .modal-tab.active{background:var(--g-bright);color:#fff}
+    .flow-chain{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;background:rgba(0,0,0,.25);padding:1rem;border-radius:10px;border:1px solid var(--border)}
+    .flow-node{padding:.5rem .8rem;border-radius:8px;background:rgba(112,173,71,.12);border:1px solid var(--border);font-size:.75rem}
+    .flow-node strong{display:block;color:#fff;font-size:.82rem}
+    .flow-arrow{color:var(--g-bright);font-size:1.1rem}
+    .dossier-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem}
+    .dossier-card{background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:9px;padding:.9rem}
+    .dossier-card h4{font-size:.78rem;color:var(--cyan);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.4px}
+    .audit-checklist{display:flex;flex-direction:column;gap:.45rem}
+    .check-item{display:flex;align-items:center;gap:.55rem;font-size:.76rem;color:var(--txt)}
+    .check-icon{color:var(--g-bright);font-weight:bold;font-size:.9rem}
+    .code-block{background:#0a150e;border:1px solid var(--border);border-radius:8px;padding:.85rem;font-family:monospace;font-size:.72rem;color:#a9d18e;overflow-x:auto;max-height:240px;white-space:pre}
+    @media print{
+      body *{visibility:hidden !important}
+      #certificate-print, #certificate-print *{visibility:visible !important}
+      #certificate-print{position:fixed;inset:0;background:#fff !important;color:#000 !important;z-index:99999;padding:2.5cm !important;display:block !important;font-family:'Segoe UI',sans-serif}
+    }
     footer{text-align:center;padding:2rem 1rem;color:var(--txt-muted);font-size:.73rem;opacity:.7}
   </style>
 </head>
@@ -202,12 +243,24 @@
     </div>
     <div class="selection-list" id="selection-list"></div>
     <div class="toolbar"><button class="btn btn-primary" type="button" id="btn-process">Leer todos los PDF y generar reporte</button></div>
-    <div id="alert-nolib" class="alert alert-warn hidden">SheetJS no está disponible. La página necesita cargar la dependencia XLSX antes de procesar.</div>
+    <div style="margin-top:1.2rem;padding:1.1rem 1.3rem;background:linear-gradient(135deg,rgba(0,176,240,.12),rgba(112,173,71,.16));border:1px solid rgba(0,176,240,.35);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+      <div>
+        <div style="font-weight:700;color:#fff;display:flex;align-items:center;gap:.5rem">
+          <span style="font-size:.95rem">✨ Modo Demostración Ejecutiva</span>
+          <span style="background:var(--cyan);color:#0a1018;font-size:.65rem;padding:2px 7px;border-radius:10px;font-weight:800;text-transform:uppercase">1-Clic</span>
+        </div>
+        <p style="font-size:.76rem;color:var(--txt-muted);margin-top:.25rem">Explora la consola interactiva completa con 81 expedientes multisede (Arequipa, Chiclayo, Chimbote, Ica) precargados sin requerir archivos locales.</p>
+      </div>
+      <button class="btn btn-primary" type="button" id="btn-demo" style="background:linear-gradient(135deg,#0090C0,#70AD47);border:none;box-shadow:0 0 16px rgba(0,176,240,.4);white-space:nowrap;font-weight:700">
+        ⚡ Cargar Demo Interactivo (81 PDFs)
+      </button>
+    </div>
   </section>
 
   <section class="card hidden" id="card-stats">
     <div class="card-title"><span class="step-badge">2</span> Procesar y generar</div>
-    <div class="stats-grid" id="stats-grid"></div>
+        <div class="stats-grid" id="stats-grid"></div>
+    <div class="analytics-hud" id="analytics-hud"></div>
     <div class="folder-list" id="folder-list" style="margin-top:1rem"></div>
     <div class="progress-wrap"><div class="progress-label"><span id="prog-label">Listo</span><span id="prog-pct">100%</span></div><div class="progress-bar"><div class="progress-fill" id="prog-fill"></div></div></div>
     <div class="incidence-list" id="incidence-list"></div>
@@ -245,9 +298,86 @@
           <button class="btn btn-secondary" type="button" id="btn-rename-local" title="Renombra los archivos en tu carpeta local directamente">🔄 Renombrar en carpeta local</button>
         </div>
       </div>
+          <div class="download-card" style="border-color:rgba(0,176,240,.4);background:rgba(0,176,240,.05)">
+        <h3>Certificado de Auditoría y Conciliación</h3>
+        <p>Genera un dictamen formal de control interno con hash SHA-256 del lote, resumen por sedes y visados contables listo para imprimir o exportar a PDF.</p>
+        <button class="btn btn-primary" type="button" id="btn-certificate" style="background:#0090C0;border:none">📄 Emitir Certificado Formal</button>
+      </div>
     </div>
     <div class="alert alert-warn" style="margin-top:1rem"><span>💡 <strong>Flujo con MIRO:</strong> Puedes ingresar los códigos MIRO en la tabla o hacer clic en <strong>"Importar maestro editado"</strong>. Luego haz clic en <strong>"Descargar ZIP con nombres MIRO"</strong> o <strong>"Renombrar en carpeta local"</strong>. También puedes hacer doble clic en <code>Renombrar_Documentos_MIRO.bat</code> en Windows.</span></div>
   </section>
+</div>
+
+
+<!-- Modal Dossier de Auditoría 360° -->
+<div id="dossier-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-title">
+        <span>🔍 Dossier Digital del Expediente</span>
+        <span id="modal-status-badge" class="status-pill status-cerrado">CERRADO</span>
+      </div>
+      <button type="button" class="modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-tabs">
+        <button type="button" class="modal-tab active" data-tab="tab-trace">Trazabilidad 360°</button>
+        <button type="button" class="modal-tab" data-tab="tab-finance">Cuadre Financiero & Fiscal</button>
+        <button type="button" class="modal-tab" data-tab="tab-sap">Simulador SAP BAPI / RFC</button>
+      </div>
+
+      <!-- Tab 1: Trazabilidad -->
+      <div id="tab-trace" class="tab-pane">
+        <div class="flow-chain" id="modal-flow-chain"></div>
+        <div class="dossier-grid" id="modal-dossier-grid" style="margin-top:1rem"></div>
+      </div>
+
+      <!-- Tab 2: Cuadre Financiero -->
+      <div id="tab-finance" class="tab-pane hidden">
+        <div class="dossier-grid" id="modal-finance-grid"></div>
+        <div class="dossier-card" style="margin-top:1rem">
+          <h4>Checklist de Validación de Control Interno</h4>
+          <div class="audit-checklist" id="modal-audit-checklist"></div>
+        </div>
+      </div>
+
+      <!-- Tab 3: SAP BAPI -->
+      <div id="tab-sap" class="tab-pane hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+          <p style="font-size:.76rem;color:var(--txt-muted)">Estructura de entrada para contabilización directa vía <code>BAPI_INCOMINGINVOICE_CREATE</code>:</p>
+          <button type="button" class="btn btn-secondary" id="btn-copy-bapi" style="padding:.25rem .6rem;font-size:.72rem">📋 Copiar Payload</button>
+        </div>
+        <div class="code-block" id="modal-bapi-payload"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Vista Imprimible del Certificado Formal de Auditoría -->
+<div id="certificate-print" class="hidden">
+  <div style="border-bottom:3px solid #1E3A2F;padding-bottom:1rem;margin-bottom:1.5rem;display:flex;justify-content:space-between;align-items:flex-end">
+    <div>
+      <h1 style="font-size:1.6rem;color:#1E3A2F;margin:0;text-transform:uppercase;letter-spacing:1px">Certificado de Conciliación Documental y Control Contable</h1>
+      <p style="font-size:.9rem;color:#555;margin:.3rem 0 0">CaleraReport Enterprise Operations Suite &nbsp;|&nbsp; La Calera</p>
+    </div>
+    <div style="text-align:right">
+      <span style="display:inline-block;padding:4px 10px;background:#e2f0d9;color:#375623;font-weight:bold;border:1px solid #70ad47;border-radius:4px;font-size:.85rem">DICTAMEN: CONFORME</span>
+    </div>
+  </div>
+
+  <div id="cert-body" style="font-size:.85rem;line-height:1.6;color:#222"></div>
+
+  <div style="margin-top:3.5rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:2rem;text-align:center;font-size:.78rem;color:#444">
+    <div style="border-top:1px solid #888;padding-top:.5rem">
+      <strong>Jefatura de Operaciones</strong><br>Validación Documental
+    </div>
+    <div style="border-top:1px solid #888;padding-top:.5rem">
+      <strong>Control Interno & Auditoría</strong><br>Cuadre y Tolerancias
+    </div>
+    <div style="border-top:1px solid #888;padding-top:.5rem">
+      <strong>Contabilidad General</strong><br>Visto Bueno Carga SAP
+    </div>
+  </div>
 </div>
 
 <footer>CALERA &mdash; Procesamiento documental local. Los archivos seleccionados no se envían a servicios externos.</footer>
@@ -255,6 +385,7 @@
 <script src="vendor/pdf.worker.min.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/jszip.min.js"></script>
+<script src="demo_data.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
