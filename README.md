@@ -142,8 +142,8 @@ renombrado`.
 El alcance predeterminado renombra solo PDF de HES:
 
 ```text
-HES 1000094356 - RXH E001-41 - DIEGO MIRES.pdf
-4300038610 - HES 1000094356 - RXH E001-41 - DIEGO MIRES.pdf
+HES 1000094356 - RXH E001-41 - PROVEEDOR MODELO S.A.C.pdf
+4300038610 - HES 1000094356 - RXH E001-41 - PROVEEDOR MODELO S.A.C.pdf
 ```
 
 El alcance opcional incluye comprobante, OC y SOLPED cuando las relaciones son
@@ -160,15 +160,16 @@ La web todavía descarga `Masivo Reporte.xlsx`. También puede generarse con:
 python scripts/procesar_masivo.py
 ```
 
-Los bots existentes permanecen separados:
+Los bots existentes permanecen separados y aplican política **Fail-Closed**:
 
 ```powershell
 python scripts/1_sap_miro_scripting.py --simular
 python scripts/1_sap_miro_scripting.py
-python scripts/1_sap_miro_scripting.py --auto
 ```
 
-El modo `--simular` es el apropiado para comprobar una sesión SAP sin guardar.
+* El modo interactivo exige confirmación humana afirmativa explícita (`SI`) para contabilizar.
+* El modo `--simular` ejecuta la verificación en SAP y cancela limpiamente (F12) sin persistir datos.
+* El modo desatendido `--auto` requiere autorización previa (`CALERA_ALLOW_UNATTENDED=true` o `--forzar-auto-autorizado`).
 
 ## Pruebas
 

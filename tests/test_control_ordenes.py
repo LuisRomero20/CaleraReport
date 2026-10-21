@@ -13,6 +13,9 @@ import openpyxl
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
+FIXTURES = ROOT / "fixtures" / "synthetic_expedientes"
+EXPEDIENTES_LOCAL = ROOT / "expedientes"
+
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -34,8 +37,9 @@ from renombrar_documentos_miro import (  # noqa: E402
     undo_last_rename,
 )
 
-
-EXPEDIENTES = ROOT / "expedientes"
+# Utiliza los fixtures sintéticos reproducibles por defecto para garantizar
+# que cualquier clon limpio pueda ejecutar la suite sin depender de datos privados.
+EXPEDIENTES = FIXTURES if FIXTURES.exists() else EXPEDIENTES_LOCAL
 
 
 class ControlOrdersIntegrationTests(unittest.TestCase):
@@ -73,7 +77,9 @@ class ControlOrdersIntegrationTests(unittest.TestCase):
         self.assertEqual(row["oc"], "430062018")
         self.assertEqual(row["hes"], "1000094356")
         self.assertEqual(row["motivo"], "SERV. SANEO")
-        self.assertEqual(row["proveedor"], "MIRES FIESTAS DIEGO AURELIO DE JESUS")
+        self.assertTrue(len(row["proveedor"]) > 5)
+        if EXPEDIENTES == FIXTURES:
+            self.assertEqual(row["proveedor"], "PROVEEDOR MODELO CHICLAYO UNO S.A.C.")
         self.assertEqual(row["valorizado"], 436.99)
         self.assertEqual(row["estatus"], "PENDIENTE MIRO")
 
@@ -222,7 +228,10 @@ class RenameToolTests(unittest.TestCase):
             root = Path(tmp) / "expedientes"
             site = root / "1130_CHICLAYO"
             site.mkdir(parents=True)
-            original_source = EXPEDIENTES / "1130_CHICLAYO" / "HES 1000094356 - RXH E001-41 - DIEGO MIRES.pdf"
+            original_source = next(
+                p for p in (EXPEDIENTES / "1130_CHICLAYO").glob("*.pdf")
+                if "1000094356" in p.name and "E001-41" in p.name
+            )
             copied = site / original_source.name
             shutil.copy2(original_source, copied)
             master = Path(tmp) / "maestro.xlsx"

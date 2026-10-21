@@ -152,43 +152,62 @@ For r = 2 To maxRows
         session.findById("wnd[0]/tbar[1]/btn[7]").Press
         WScript.Sleep 1000
 
-        ' 5. Contabilizar (Guardar)
-        session.findById("wnd[0]/tbar[0]/btn[11]").Press
-        WScript.Sleep 1800
+        ' ── CONTROL FAIL-CLOSED: Confirmación interactiva antes de contabilizar ──
+        Dim respConfirm
+        respConfirm = MsgBox("Simulación generada exitosamente en SAP." & vbCrLf & vbCrLf & _
+                             "Comprobante: " & refDoc & vbCrLf & _
+                             "Proveedor RUC: " & rucDoc & vbCrLf & _
+                             "Importe: S/ " & FormatNumber(CDbl(impDoc), 2) & vbCrLf & _
+                             "Orden de Compra: " & ocDoc & vbCrLf & vbCrLf & _
+                             "¿Deseas CONTABILIZAR este comprobante en SAP?", _
+                             vbQuestion + vbYesNo + vbDefaultButton2, "Control Financiero SAP MIRO")
 
-        strMsg = session.findById("wnd[0]/sbar").Text
-        msgType = session.findById("wnd[0]/sbar").MessageType
-
-        ' Extraer N° Documento y Asiento
-        docMiro = ""
-        asientoContable = ""
-        
-        Dim regexMiro, regexAsiento, matches
-        Set regexMiro = CreateObject("VBScript.RegExp")
-        regexMiro.Pattern = "\b(5\d{9})\b"
-        If regexMiro.Test(strMsg) Then
-            Set matches = regexMiro.Execute(strMsg)
-            docMiro = matches(0).Value
-        End If
-
-        Set regexAsiento = CreateObject("VBScript.RegExp")
-        regexAsiento.Pattern = "\b(4\d{9})\b"
-        If regexAsiento.Test(strMsg) Then
-            Set matches = regexAsiento.Execute(strMsg)
-            asientoContable = matches(0).Value
-        End If
-
-        If Err.Number = 0 And msgType <> "E" Then
-            objSheet.Cells(r, 22).Value = "CONTABILIZADO"
-            objSheet.Cells(r, 23).Value = docMiro
-            objSheet.Cells(r, 24).Value = asientoContable
-            totalExitosos = totalExitosos + 1
-        Else
-            objSheet.Cells(r, 22).Value = "ERROR"
-            objSheet.Cells(r, 23).Value = strMsg
+        If respConfirm <> vbYes Then
+            ' Cancelar modal de simulación con F12
+            session.findById("wnd[0]").sendVKey 12
+            objSheet.Cells(r, 22).Value = "CANCELADO"
+            objSheet.Cells(r, 23).Value = "Cancelado por el usuario tras simulación"
             objSheet.Cells(r, 24).Value = "-"
-            totalFallidos = totalFallidos + 1
-            Err.Clear
+        Else
+            ' 5. Contabilizar (Guardar)
+            session.findById("wnd[0]/tbar[0]/btn[11]").Press
+            WScript.Sleep 1800
+
+            strMsg = session.findById("wnd[0]/sbar").Text
+            msgType = session.findById("wnd[0]/sbar").MessageType
+
+            ' Extraer N° Documento y Asiento
+            docMiro = ""
+            asientoContable = ""
+            
+            Dim regexMiro, regexAsiento, matches
+            Set regexMiro = CreateObject("VBScript.RegExp")
+            regexMiro.Pattern = "\b(5\d{9})\b"
+            If regexMiro.Test(strMsg) Then
+                Set matches = regexMiro.Execute(strMsg)
+                docMiro = matches(0).Value
+            End If
+
+            Set regexAsiento = CreateObject("VBScript.RegExp")
+            regexAsiento.Pattern = "\b(4\d{9})\b"
+            If regexAsiento.Test(strMsg) Then
+                Set matches = regexAsiento.Execute(strMsg)
+                asientoContable = matches(0).Value
+            End If
+
+            ' Verificación estricta: Solo éxito con número inequívoco y mensaje de éxito S/I
+            If Err.Number = 0 And (docMiro <> "" Or asientoContable <> "") And (msgType = "S" Or msgType = "I") Then
+                objSheet.Cells(r, 22).Value = "CONTABILIZADO"
+                objSheet.Cells(r, 23).Value = docMiro
+                objSheet.Cells(r, 24).Value = asientoContable
+                totalExitosos = totalExitosos + 1
+            Else
+                objSheet.Cells(r, 22).Value = "REVISION MANUAL REQUERIDA"
+                objSheet.Cells(r, 23).Value = strMsg
+                objSheet.Cells(r, 24).Value = "-"
+                totalFallidos = totalFallidos + 1
+                Err.Clear
+            End If
         End If
         On Error GoTo 0
         WScript.Sleep 500

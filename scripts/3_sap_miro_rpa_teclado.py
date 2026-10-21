@@ -108,10 +108,26 @@ def digitar_factura_miro(fecha_doc, referencia, ruc, importe, oc, ind_impto='C0'
         pyautogui.press('enter')
         time.sleep(1.5)
 
-    # 8. Contabilizar
-    print("  💾 Contabilizando comprobante (Ctrl + S)...")
-    pyautogui.hotkey('ctrl', 's')
-    time.sleep(2.0)  # Esperar respuesta de SAP
+    # 8. Simulación (F7)
+    print("  🔍 Generando simulación (F7)...")
+    pyautogui.press('f7')
+    time.sleep(1.5)
+
+    # Control Fail-Closed: Confirmación humana afirmativa explícita
+    resp = input("  ❓ ¿Simulación correcta en SAP? Escribe 'SI' para CONTABILIZAR (o Enter para cancelar): ").strip().upper()
+    if resp in ('SI', 'CONFIRMAR'):
+        print("  💾 Contabilizando comprobante (Ctrl + S)...")
+        enfocar_sap()
+        pyautogui.hotkey('ctrl', 's')
+        time.sleep(2.0)  # Esperar respuesta de SAP
+        return True
+    else:
+        print(f"  🛑 Operación cancelada por política de control Fail-Closed.")
+        enfocar_sap()
+        pyautogui.press('f12')  # Cancelar modal de simulación
+        time.sleep(0.5)
+        pyautogui.press('f12')  # Salir de /nMIRO
+        return False
 
 
 def procesar_rpa(ruta_excel):

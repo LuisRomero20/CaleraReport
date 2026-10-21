@@ -45,13 +45,16 @@ if hasattr(sys.stderr, 'reconfigure'):
 try:
     import win32com.client
 except ImportError:
-    print("❌ Error: Requiere la librería 'pywin32'. Instálala ejecutando:")
-    print("   pip install pywin32 openpyxl")
-    sys.exit(1)
+    win32com = None
 
 
 def conectar_sap():
     """Se conecta a la sesión activa de SAP GUI for Windows."""
+    if win32com is None:
+        print("❌ Error: Requiere la librería 'pywin32' para conectarse a SAP GUI. Instálala ejecutando:")
+        print("   pip install pywin32 openpyxl")
+        return None
+
     print("🔗 Conectando con sesión activa de SAP GUI...")
     try:
         sap_gui_auto = win32com.client.GetObject("SAPGUI")
@@ -79,7 +82,7 @@ def limpiar_texto_servicio(texto_pos):
     Ejemplo: 'SERVICIO DE SANEO SEMANA 38' -> 'SERVICIO DE SANEO'
     """
     t = str(texto_pos or '').strip()
-    t = re.sub(r'\s*SEMANA\s*\d+.*$', '', t, flags=re.IGNORECASE).strip()
+    t = re.sub(r'\s*SEM(?:ANA)?\s*[-:]?\s*\d+.*$', '', t, flags=re.IGNORECASE).strip()
     return t[:25]  # Longitud estándar de texto de cabecera MIRO (BKTXT)
 
 
@@ -210,27 +213,29 @@ def registrar_fila_miro(session, fecha_doc, referencia, ruc, importe, texto_pos,
         print(f"  🔍 Simulación generada exitosamente en SAP.")
         print(f"     Comprobante: {referencia} | Tipo: {clase_doc} | Monto: S/ {importe_str} | Impuesto: {code_impto} | OC: {oc}")
 
-        # En modo simulación pura: no guarda
+        # En modo simulación pura: no guarda y limpia el estado modal
         if modo_simulacion:
-            # Cerrar modal de simulación
+            # Cerrar modal de simulación (F12)
             if session.Children.Count > 1:
                 session.Children(session.Children.Count - 1).sendVKey(12)  # F12 Cancelar / Salir
-            return (True, "Simulación exitosa (Modo prueba)", "SIMULADO", "SIMULADO")
+            # Cancelar pantalla /nMIRO para no dejar bloqueo
+            session.findById("wnd[0]").sendVKey(12)
+            return (True, "Simulación exitosa (Modo prueba - Cancelado limpiamente)", "SIMULADO", "SIMULADO")
 
-        # Confirmación interactiva con el usuario
+        # Confirmación interactiva con el usuario (Fail-Closed)
         if interactivo:
-            print("\n  👉 Por favor, revisa la ventana de simulación en tu SAP GUI.")
-            resp = input("  ❓ ¿Los datos están correctos y deseas CONTABILIZAR? (S/n): ").strip().lower()
-            if resp in ('n', 'no', 'cancelar'):
-                # Cancelar y volver
+            print("\n  👉 Revisa la ventana de simulación en tu SAP GUI (Saldo debe ser 0.00 PEN).")
+            resp = input("  ❓ ¿Deseas CONTABILIZAR este comprobante en SAP? Escribe 'SI' para confirmar: ").strip().upper()
+            if resp not in ('SI', 'CONFIRMAR'):
+                print(f"  🛑 Operación cancelada por política de control Fail-Closed (Respuesta: '{resp}').")
                 if session.Children.Count > 1:
-                    session.Children(session.Children.Count - 1).sendVKey(12)
-                return (False, "Cancelado por el usuario tras la simulación", "", "")
+                    session.Children(session.Children.Count - 1).sendVKey(12)  # F12 Cancelar modal
+                session.findById("wnd[0]").sendVKey(12)  # F12 Salir de transacción
+                return (False, "Cancelado por política Fail-Closed: se requiere confirmación afirmativa explícita ('SI')", "", "")
 
         # ── PANTALLA 5: CONTABILIZAR Y EXTRAER ASIENTO CONTABLE ──────
         # Contabilizar (Ctrl + S o Guardar btn[11])
         if session.Children.Count > 1:
-            # Si sigue abierta la ventana modal de simulación, guardar desde ella o cerrarla y guardar
             try:
                 session.Children(session.Children.Count - 1).findById("tbar[0]/btn[11]").press()
             except Exception:
@@ -252,12 +257,15 @@ def registrar_fila_miro(session, fecha_doc, referencia, ruc, importe, texto_pos,
         m_asiento = re.search(r'Asiento\s+contable\s*:\s*(\d{10})', msg, re.I) or re.search(r'\b(4\d{9})\b', msg)
         asiento_contable = m_asiento.group(1) if m_asiento else ""
 
+        # Verificación estricta de éxito financiero
         if msg_type in ('S', 'I') and (doc_miro or asiento_contable):
             return (True, msg, doc_miro, asiento_contable)
         elif msg_type == 'E':
             return (False, f"Error SAP: {msg}", "", "")
         else:
-            return (True, msg, doc_miro or "REGISTRADO", asiento_contable or "REGISTRADO")
+            # POLÍTICA FAIL-CLOSED: Nunca asumir éxito ante respuestas ambiguas o sin ID inequívoco
+            detalle_err = f"Respuesta no confirmada de SAP (Tipo: {msg_type}, Mensaje: '{msg}'). No se detectó número de documento contable inequívoco."
+            return (False, f"Alerta de Control Financiero: {detalle_err} Se envía a reconciliación manual.", "", "")
 
     except Exception as e:
         return (False, f"Excepción durante el proceso MIRO: {e}", "", "")
@@ -463,6 +471,25 @@ if __name__ == '__main__':
 
     es_simular = "--simular" in sys.argv
     es_auto = "--auto" in sys.argv
+
+    # Control de Seguridad Financiera (Fail-Closed):
+    # El modo desatendido (--auto) está restringido por defecto para evitar contabilizaciones accidentales.
+    if es_auto:
+        auto_autorizado = (
+            os.environ.get("CALERA_ALLOW_UNATTENDED", "").lower() in ("true", "1", "yes")
+            or "--forzar-auto-autorizado" in sys.argv
+        )
+        if not auto_autorizado:
+            print("=" * 70)
+            print("🛑 BLOQUEO DE CONTROL FINANCIERO (POLÍTICA FAIL-CLOSED)")
+            print("=" * 70)
+            print("El modo desatendido (--auto) no está permitido en ejecuciones directas.")
+            print("Toda contabilización en SAP debe contar con validación humana interactiva.")
+            print("Para habilitar este modo con propósitos de integración o pruebas autorizadas,")
+            print("defina la variable de entorno: CALERA_ALLOW_UNATTENDED=true")
+            print("o añada el parámetro explícito: --forzar-auto-autorizado\n")
+            sys.exit(1)
+
     es_interactivo = not es_auto and not es_simular
 
     print("=" * 70)
