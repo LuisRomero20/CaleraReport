@@ -141,6 +141,9 @@ class ConsolidationResult:
 
     def to_summary(self) -> dict[str, Any]:
         by_province = Counter(str(row.get("provincia") or "") for row in self.records)
+        total_val = sum(Decimal(str(r["valorizado"])) for r in self.records if r.get("valorizado") is not None)
+        supported_count = sum(bool(r.get("_physical_supported")) for r in self.records)
+        reconciliation_pct = round((supported_count / max(1, len(self.records))) * 100, 2)
         return {
             "week": self.week,
             "records": len(self.records),
@@ -149,8 +152,13 @@ class ConsolidationResult:
             "selected_sites": self.selected_sites,
             "incidents": len(self.incidents),
             "blocking_incidents": sum(i.severity == BLOCKING for i in self.incidents),
-            "supported_records": sum(bool(r.get("_physical_supported")) for r in self.records),
-            "pending_miro": sum(not clean_id(r.get("miro")) for r in self.records),
+            "warning_incidents": sum(i.severity == WARNING for i in self.incidents),
+            "supported_records": supported_count,
+            "closed_records": sum(r.get("estatus") == "CERRADO" for r in self.records),
+            "observed_records": sum(r.get("estatus") == "OBSERVADO" for r in self.records),
+            "pending_miro": sum(r.get("estatus") == "PENDIENTE MIRO" for r in self.records),
+            "total_valorizado": float(total_val),
+            "reconciliation_rate": reconciliation_pct,
         }
 
 
@@ -757,7 +765,7 @@ def _parse_pdf_info(path: Path) -> dict[str, Any]:
             "solicitante": "ALMACEN" if "ALM_LIMA_PRO" in upper else "",
             "motivo": _service_motive(lead) if base["type"] == "HES" else _service_motive(detail),
             "detalle": detail or lead,
-            "readable": True,
+            "readable": bool(clean),
         }
     except Exception:
         return {
@@ -1139,12 +1147,18 @@ def _finalize_record(record: dict[str, Any]) -> None:
     if record.get("_manual_observation"):
         messages.append(record["_manual_observation"])
     record["observaciones"] = " | ".join(messages)
+
+    miro_clean = clean_id(record.get("miro"))
+    is_valid_miro = bool(re.fullmatch(r"\d{10}", miro_clean))
+
     if record.get("_blocking"):
         record["estatus"] = "OBSERVADO"
-    elif not clean_id(record.get("miro")):
+    elif not miro_clean:
         record["estatus"] = "PENDIENTE MIRO"
-    else:
+    elif is_valid_miro and record.get("_physical_supported", True):
         record["estatus"] = "CERRADO"
+    else:
+        record["estatus"] = "OBSERVADO"
 
 
 def consolidate(

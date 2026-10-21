@@ -135,6 +135,45 @@ class ControlOrdersIntegrationTests(unittest.TestCase):
         self.assertEqual(formatear_referencia("E001-622", "FACTURA"), "01-0E001-0000622")
         self.assertEqual(normalizar_texto_pos("SERV. SANEO", 41), "SERVICIO DE SANEO SEMANA 41")
 
+    def test_invalid_short_miro_never_gives_cerrado_status(self) -> None:
+        record = dict(self.selected.records[0])
+        from control_ordenes import _finalize_record
+
+        # Caso 1: MIRO vacío -> PENDIENTE MIRO
+        record["miro"] = ""
+        record["_blocking"] = []
+        record["_physical_supported"] = True
+        _finalize_record(record)
+        self.assertEqual(record["estatus"], "PENDIENTE MIRO")
+
+        # Caso 2: MIRO inválido (3 dígitos) -> OBSERVADO, nunca CERRADO
+        record["miro"] = "123"
+        _finalize_record(record)
+        self.assertEqual(record["estatus"], "OBSERVADO")
+
+        # Caso 3: MIRO alfanumérico -> OBSERVADO
+        record["miro"] = "ABC1234567"
+        _finalize_record(record)
+        self.assertEqual(record["estatus"], "OBSERVADO")
+
+        # Caso 4: MIRO numérico válido de 10 dígitos -> CERRADO
+        record["miro"] = "5105773695"
+        _finalize_record(record)
+        self.assertEqual(record["estatus"], "CERRADO")
+
+    def test_to_summary_metrics_contains_full_audit_contract(self) -> None:
+        summary = self.selected.to_summary()
+        for key in (
+            "week", "records", "sites", "selected_files", "selected_sites",
+            "incidents", "blocking_incidents", "warning_incidents",
+            "supported_records", "closed_records", "observed_records",
+            "pending_miro", "total_valorizado", "reconciliation_rate",
+        ):
+            self.assertIn(key, summary)
+        self.assertEqual(summary["records"], 11)
+        self.assertEqual(summary["reconciliation_rate"], 100.0)
+        self.assertGreater(summary["total_valorizado"], 0)
+
 
 class ReportAmountTests(unittest.TestCase):
     def test_sap_reference_round_trips_to_document_number(self) -> None:

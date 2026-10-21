@@ -422,8 +422,24 @@ function deduplicate(records,incidents){
 }
 
 function finalizeRecord(record){
-  const notes=[]; if(record._blocking.length) notes.push(`BLOQUEANTE: ${record._blocking.join(' | ')}`); if(record._warnings.length) notes.push(`ADVERTENCIA: ${record._warnings.join(' | ')}`); if(record._manualObservation) notes.push(record._manualObservation);
-  record.observaciones=notes.join(' | '); record.estatus=record._blocking.length?'OBSERVADO':record.miro?'CERRADO':'PENDIENTE MIRO';
+  const notes=[];
+  if(record._blocking.length) notes.push(`BLOQUEANTE: ${record._blocking.join(' | ')}`);
+  if(record._warnings.length) notes.push(`ADVERTENCIA: ${record._warnings.join(' | ')}`);
+  if(record._manualObservation) notes.push(record._manualObservation);
+  record.observaciones=notes.join(' | ');
+
+  const miroClean=cleanId(record.miro||'');
+  const isValidMiro=/^\d{10}$/.test(miroClean);
+
+  if(record._blocking.length){
+    record.estatus='OBSERVADO';
+  } else if(!miroClean){
+    record.estatus='PENDIENTE MIRO';
+  } else if(isValidMiro && (record._physicalSupported || record._physical_supported)){
+    record.estatus='CERRADO';
+  } else {
+    record.estatus='OBSERVADO';
+  }
 }
 
 async function parseManual(file){
